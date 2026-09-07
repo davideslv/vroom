@@ -83,6 +83,18 @@
 // the road it burns and nothing else; see COST_MODEL below for why, and
 // solverPerKm for how money turns into what VROOM is actually given.
 //
+// Scenarios (docs/waste_defaults.json, "scenarios" block) are what a
+// plan is asked to be good at. The solver minimises one number, money
+// for the road plus a charge on driving time, so which plan comes back
+// hangs entirely on how those two weigh against each other — and the
+// cheapest day and the one with the least driving in it are not the
+// same day, because the cheap trucks are the small ones and small
+// trucks make more trips. Rather than pick for the planner, the day is
+// solved once per scenario, each with its own weight (`time_weight`,
+// see BUILTIN_SCENARIOS) and nothing else changed, and the plans are
+// offered side by side. One scenario in the block gives back the
+// single plan of before.
+//
 // No-go zones (docs/no_go_zones.json, third argument of create, exposed
 // in the browser as window.WASTE_ZONES) are areas some vehicles may not
 // drive through. VROOM only ever sees travel times, so a zone is not a
@@ -145,6 +157,81 @@
   // it only mildly prefers less driving between otherwise equal plans.
   const REFERENCE_PER_HOUR = 3600;
 
+  // ---------- scenarios ----------
+  //
+  // The two terms above are the whole trade the solver makes, so which
+  // plan comes back is decided by one number: how much a driving hour
+  // weighs against a kilometre. A scenario is that number, and the same
+  // day solved under several of them gives the planner the choice
+  // between a plan that saves money and one that gets the trucks home
+  // earlier. `time_weight` multiplies REFERENCE_PER_HOUR and nothing
+  // else changes — same fleet, same operations, same limits — so the
+  // plans really are comparable.
+  //
+  // What the weights mean, in the units VROOM works in: one driving
+  // hour costs 100 x per_hour x 3600 and one kilometre 360 x per_km x
+  // 1000, so at time_weight 1 and the dearest configuration on
+  // COST_SCALE an hour is worth about 1.2 km. A truck averaging v km/h
+  // therefore spends about 1.2 x time_weight / v of its cost on time,
+  // which is a few percent at time_weight 1 (today's plan: money, with
+  // time only breaking ties), about even in the tens, and time with
+  // kilometres as the tie-break in the hundreds. The values below are
+  // read for roughly 30-40 km/h of town-and-motorway average.
+  //
+  // What that buys, on a generated 20-operation day around the company
+  // with the fleet and prices of docs/waste_defaults.json:
+  //
+  //   weight     1      505 km   9h42 driving   EUR 348   7 trucks
+  //   weight    30      397 km   7h49 driving   EUR 406   5 trucks
+  //   weight   300      355 km   7h03 driving   EUR 485   2 trucks
+  //
+  // Road and hours fall together and money rises against both, because
+  // what the weight really decides is the size of truck: the cheap
+  // small ones are cheap per kilometre and carry little, so a plan
+  // bought on money makes many more trips than one bought on time.
+  // Which also means kilometres are not a third direction to pull in —
+  // the plan with the least driving has the least road as well.
+  //
+  // Two more things move with the weight and are worth knowing. The
+  // prices per km of the truck types keep their ratios but shrink
+  // against time, so a heavier weight stops preferring the cheap small
+  // truck over the big one — which is the point of asking for less
+  // driving. And an early start stays priced in money (see
+  // solverEarlyStart), so a heavier weight outweighs its price too; it
+  // cannot make trucks go out early for nothing, though, since an
+  // earlier window lengthens the day rather than shortening any drive.
+  //
+  // One thing the weight does not buy is a day that ends earlier.
+  // VROOM adds the driving up over the whole fleet, so less of it can
+  // mean two trucks out all day instead of seven out for the morning.
+  // What a heavy weight saves is truck-hours, not the clock.
+  const BUILTIN_SCENARIOS = [
+    {
+      key: "cheapest",
+      label: "Cheapest",
+      time_weight: 1,
+      hint: "What the day costs the company: the kilometres at the price of the truck that drives them. The cheap small trucks carry little, so this is also the most driving.",
+    },
+    {
+      key: "balanced",
+      label: "Balanced",
+      time_weight: 30,
+      hint: "An hour of driving weighs about what the kilometres it covers do. Middle ground: less road than the cheapest day, less money than the shortest one.",
+    },
+    {
+      key: "least-driving",
+      label: "Least driving",
+      time_weight: 300,
+      hint: "The fewest hours on the road, and the fewest kilometres with them: bigger trucks, fewer trips, more money. It is driving added up over the fleet, not when the last truck gets home.",
+    },
+  ];
+
+  // per_hour reaches VROOM as an unsigned integer and is multiplied by
+  // 100 internally, so the weight is capped well below where either
+  // could overflow. There is nothing to find above it anyway: once time
+  // outweighs money by this much, more of it changes no plan.
+  const MAX_TIME_WEIGHT = 100000;
+
   // Money never reaches the solver. Only the ratios between the
   // configurations decide which truck drives, while the absolute level
   // decides something else entirely: how completely the term above is
@@ -176,6 +263,7 @@
     costs: { currency: "\u20ac", per_km: {}, chico_multiplier: {}, early_start_per_hour: 0 },
     limits: { max_travel_time_min: 0, max_distance_km: 0, max_tasks: 0 },
     solver: { geometry: true, exploration_level: 5, threads: 4, show_request: false },
+    scenarios: BUILTIN_SCENARIOS,
   };
 
   // Fallback when no zone file is given: a single unrestricted profile,
@@ -225,6 +313,38 @@
     const day = { ...BUILTIN_DEFAULTS.working_day, ...(D.working_day || {}) };
     const svc = { ...BUILTIN_DEFAULTS.operation_times_min, ...(D.operation_times_min || {}) };
     const SOLVER_DEFAULTS = { ...BUILTIN_DEFAULTS.solver, ...(D.solver || {}) };
+
+    // The scenarios this day is solved under, in the order they are
+    // offered (see BUILTIN_SCENARIOS). A defaults file may replace the
+    // list wholesale — different weights, more of them, or a single one
+    // to get the old one-plan behaviour back — but not half-describe
+    // one: an entry without a key or a usable weight is dropped, and a
+    // list left with nothing in it falls back to the built-in three
+    // rather than leaving the planner with no plan at all.
+    const SCENARIOS = (() => {
+      const src = Array.isArray(D.scenarios) ? D.scenarios : BUILTIN_SCENARIOS;
+      const seen = new Set();
+      const out = [];
+      for (const s of src) {
+        if (!s || typeof s !== "object") continue;
+        const key = String(s.key || "").trim();
+        if (!key || seen.has(key)) continue;
+        const weight = Number(s.time_weight);
+        if (!isFinite(weight) || weight < 0) continue;
+        seen.add(key);
+        out.push({
+          key,
+          label: String(s.label || key),
+          // Through the same floor and ceiling buildRequest uses, so
+          // the weight a scenario shows is the weight it was solved at.
+          timeWeight: scenarioTimeWeight(weight),
+          hint: String(s.hint || ""),
+        });
+      }
+      return out.length ? out : BUILTIN_SCENARIOS.map((s) => ({
+        key: s.key, label: s.label, timeWeight: s.time_weight, hint: s.hint,
+      }));
+    })();
     const SIZES = rules.sizes.slice();
     const KINDS = [...SIZES.map((s) => `e${s}`), ...SIZES.map((s) => `f${s}`)];
     const TRUCK_TYPES = {};
@@ -608,19 +728,37 @@
     // is not the company's: VROOM weighs a fixed cost and a kilometre
     // driven at per_km 1 exactly alike, so one unit here is one such
     // kilometre and dividing by the dearest price per kilometre before
-    // scaling by COST_SCALE puts money and road in the same units.
+    // scaling by COST_SCALE puts money and road in the same units. The
+    // scenario's time weight does not enter into it: an early start is
+    // money and stays priced in money, and asking for a faster day is
+    // precisely asking for money to weigh less.
     // Never 0 while an early start is on offer: at 0 an early vehicle
     // and its normal twin would cost precisely the same and the solver
     // would send trucks out early for nothing.
-    function solverEarlyStart(seconds, costs) {
+    function solverEarlyStart(seconds, costs, timeWeight) {
       if (!(seconds > 0)) return 0;
       const dearest = dearestMoneyPerKm(costs);
       // Nothing is priced per kilometre, so there is no money scale to
-      // put this on. What is left is the reference charge on driving
-      // time (see REFERENCE_PER_HOUR), which comes to one unit a
-      // second, so an hour early is worth an hour more on the road.
-      if (dearest <= 0) return Math.round(seconds);
+      // put this on. What is left is the charge on driving time (see
+      // REFERENCE_PER_HOUR), which comes to one unit a second at time
+      // weight 1 and that much more above it, so an hour early is worth
+      // an hour more on the road whatever the scenario asks for.
+      if (dearest <= 0) return Math.round(seconds * scenarioTimeWeight(timeWeight));
       return Math.max(1, Math.round((moneyForEarlyStart(seconds, costs) / dearest) * COST_SCALE));
+    }
+
+    // A scenario's time weight as buildRequest may use it: 1 (today's
+    // plan, money with time breaking ties) for anything missing or
+    // unusable, and never above what per_hour can carry. Never below 1
+    // either, and that floor is not tidiness: a weight of 0 would send
+    // per_hour 0, which is the one value that breaks the solver rather
+    // than merely changing its mind (see REFERENCE_PER_HOUR). Nothing
+    // is lost by it, since below 1 the charge on time is already too
+    // small to decide anything.
+    function scenarioTimeWeight(value) {
+      const w = Number(value);
+      if (!isFinite(w)) return 1;
+      return Math.min(Math.max(w, 1), MAX_TIME_WEIGHT);
     }
 
     // Hard caps per truck, unlike the costs above: a route breaking one
@@ -756,13 +894,18 @@
     // truck is one vehicle per shift) and early the seconds this
     // vehicle goes out before its shift normally starts, 0 for most.
     function buildRequest({ depot, operations, fleet, chicos, stock, times, costs, limits,
-                            geometry, exploration, threads }) {
+                            geometry, exploration, threads, timeWeight }) {
       fleet = Object.assign(defaultFleet(), fleet || {});
       chicos = Object.assign(defaultChicos(), chicos || {});
       stock = Object.assign(defaultContainerStock(), stock || {});
       times = Object.assign(defaultTimes(), times || {});
       costs = costs || defaultCosts();
       limits = Object.assign(defaultLimits(), limits || {});
+      // What this request asks for, between money and a short day: the
+      // scenario's time weight, or 1 when the caller names none, which
+      // is the plan the planner got before scenarios existed.
+      const weight = scenarioTimeWeight(timeWeight);
+      const perHour = Math.round(REFERENCE_PER_HOUR * weight);
       const perKm = solverPerKm(costs);
       const company = [depot.lng, depot.lat];
 
@@ -784,21 +927,22 @@
         // its travel times and its drawn route go through the areas it
         // is not allowed in.
         const profile = profileFor({ type, chico });
-        // The whole cost of this configuration is its road: the
-        // reference per_hour (see REFERENCE_PER_HOUR, it is the same on
-        // every vehicle and is not a business cost), no task cost, no
-        // fixed cost, and the normalised price of a kilometre. A
-        // configuration priced at nothing sends no per_km at all, which
-        // also spares VROOM the distance matrix.
+        // The whole cost of this configuration is its road and its
+        // hours: the charge on driving time (REFERENCE_PER_HOUR times
+        // the scenario's weight, the same on every vehicle and not a
+        // business cost), no task cost, no fixed cost, and the
+        // normalised price of a kilometre. A configuration priced at
+        // nothing sends no per_km at all, which also spares VROOM the
+        // distance matrix.
         const perKmForVehicle = perKm[configKeyOf(type, chico)];
-        const vehicleCosts = { per_hour: REFERENCE_PER_HOUR, per_task_hour: 0 };
+        const vehicleCosts = { per_hour: perHour, per_task_hour: 0 };
         if (perKmForVehicle > 0) vehicleCosts.per_km = perKmForVehicle;
         // An early start is the one thing besides the road that a plan
         // pays for, and it is paid per truck that goes out early rather
         // than per kilometre: VROOM's `fixed` cost, charged exactly when
         // this vehicle is used. Nothing else on any vehicle is fixed, so
         // it is the whole price of the earliness.
-        if (early > 0) vehicleCosts.fixed = solverEarlyStart(early, costs);
+        if (early > 0) vehicleCosts.fixed = solverEarlyStart(early, costs, weight);
         const parts = [description];
         if (shifts.length > 1) parts.push(shift.label);
         if (early > 0) parts.push(`from ${clockOf(shift.start - early)}`);
@@ -1339,7 +1483,7 @@
 
     return {
       SIZES, KINDS, TRUCK_TYPES, TYPE_ORDER, CHICO_TYPES, CHICO_ORDER,
-      OPERATION_TYPES, COMPANY, SOLVER_DEFAULTS,
+      OPERATION_TYPES, COMPANY, SOLVER_DEFAULTS, SCENARIOS,
       ZONES, PROFILES, DEFAULT_PROFILE,
       REFERENCE_PER_HOUR, COST_SCALE, EARLY_STEPS, VEHICLE_CONFIGS,
       parseLoad, oneHot, capacitiesFor, chicoCapacitiesFor, sizesFor,
@@ -1347,7 +1491,8 @@
       takesContainerOut, stockUsers, chicosOffered, defaultTimes, shiftsOf,
       earlyStartsOf, earlyStartMaxOf, clockOf,
       defaultCosts, moneyPerKm, dearestMoneyPerKm, solverPerKm,
-      moneyForEarlyStart, solverEarlyStart, defaultLimits, configKeyOf,
+      moneyForEarlyStart, solverEarlyStart, scenarioTimeWeight,
+      defaultLimits, configKeyOf,
       profileFor, pointInZone, zonesAt, blockedProfilesAt, describeProfiles,
       opIdOfStep, describe, buildRequest, validate,
       CSV_COLUMNS, parseOperationsCsv, operationsToCsv,

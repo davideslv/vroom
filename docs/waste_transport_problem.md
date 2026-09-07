@@ -260,6 +260,19 @@ not; a plan that sends one more truck out to save kilometres is the
 better plan, not the worse one. Time only sets what fits: the working
 hours below are a limit, not a price.
 
+That said, the plan this gives is one of several defensible ones, and
+which is wanted is a judgement rather than a fact: the cheapest day
+puts the small cheap trucks on many trips, so it is also the day with
+the most driving in it, and a plan that weighs hours instead uses
+fewer, bigger, dearer trucks for less road and fewer truck-hours.
+Rather than settle that in the model, the planner solves the day
+several times over — the same operations, the same fleet, the same
+prices, only the weight on an hour changing — and puts the plans side
+by side with what each comes to in trucks, driving, kilometres and
+money, for the planner to choose between. The plans on offer are the
+`scenarios` block of `docs/waste_defaults.json`; the objective above
+is the first of them.
+
 ## Dynamics: operations added during the day
 
 From time to time a new operation is requested while the trucks are
