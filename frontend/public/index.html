@@ -239,6 +239,44 @@
   #actions button { flex: 1; padding: 10px 12px; font-size: 13.5px; }
   #actions button.primary { flex: 2; }
 
+  /* the scenarios, side by side: one row per plan, the shown one selected */
+  #scenarios:empty { display: none; }
+  #scenarios { margin-bottom: 10px; }
+  .scen-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; }
+  .scen-head .t { font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--ink-3); }
+  .scen-head .n { font-size: 11px; color: var(--ink-3); margin-left: auto; font-variant-numeric: tabular-nums; }
+  /* One grid for the header and every row, so the figures of the plans
+     line up in columns and are compared by looking down them. */
+  .scen-table { border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); box-shadow: var(--shadow); overflow: hidden; }
+  .scen-hdr, .scen { display: grid; grid-template-columns: 1fr repeat(4, auto); gap: 0 9px; align-items: center; padding: 5px 10px; }
+  .scen-hdr { font-size: 10px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--ink-3); background: var(--panel-2); border-bottom: 1px solid var(--line); }
+  .scen-hdr span { text-align: right; }
+  .scen {
+    width: 100%; text-align: left; font: inherit; cursor: pointer;
+    background: none; border: 0; border-top: 1px solid var(--line-2); border-radius: 0;
+    padding: 6px 10px 7px;
+  }
+  .scen:first-of-type { border-top: 0; }
+  .scen:hover:not(:disabled) { background: var(--panel-2); }
+  .scen.active { background: var(--brand-soft); box-shadow: inset 3px 0 0 var(--brand); cursor: default; }
+  .scen:disabled:not(.active) { cursor: default; }
+  .scen .label { display: flex; flex-direction: column; font-size: 12.5px; font-weight: 650; color: var(--ink); min-width: 0; }
+  .scen.active .label { color: var(--brand-dark); }
+  .scen .c { display: flex; flex-direction: column; align-items: flex-end; font-variant-numeric: tabular-nums; }
+  .scen .c b { font-size: 12.5px; font-weight: 600; color: var(--ink-2); white-space: nowrap; }
+  .scen.active .c b { color: var(--ink); }
+  .scen .c b small { font-size: 10px; font-weight: 500; color: var(--ink-3); }
+  /* How far this plan is from the best one in that column: the reason
+     to pick a row, so it sits under the figure it comments on. */
+  .scen .c i { font-size: 10px; font-style: normal; color: var(--ink-3); white-space: nowrap; }
+  .scen .c i.best { color: var(--ok); font-weight: 600; }
+  .scen .state { font-size: 10.5px; font-weight: 500; color: var(--ink-3); }
+  .scen .state.err { color: var(--danger); }
+  /* A row with no plan yet has nothing to put in the columns, so what
+     it is waiting for takes them. */
+  .scen > .state { grid-column: 2 / -1; text-align: right; }
+  .scen-hint { margin-top: 7px; font-size: 11.5px; line-height: 1.45; color: var(--ink-3); }
+
   /* solution summary */
   #summary:empty { display: none; }
   #summary { display: flex; flex-direction: column; gap: 10px; }
@@ -397,6 +435,12 @@
 
       <div id="problems"></div>
 
+      <!-- The day planned under each scenario (see the scenarios block
+           of docs/waste_defaults.json): one row per plan with what it
+           comes to in trucks, driving, kilometres and money, the plan
+           on the map being the selected row. Filled by renderScenarios. -->
+      <div id="scenarios"></div>
+
       <div id="summary"></div>
     </div>
 
@@ -487,10 +531,10 @@
         <ol class="rank">
           <li><b>Priority</b> — the total priority of the operations done.</li>
           <li><b>Operations done</b> — the most, whatever they cost.</li>
-          <li><b>Cost</b> — the kilometres, priced per truck above.</li>
+          <li><b>Cost</b> — the kilometres, priced per truck above, plus a charge on driving time that the scenario sets.</li>
           <li><b>Trucks used</b>, then <b>driving time</b>, then <b>distance</b>.</li>
         </ol>
-        <div class="hint">Each line only speaks when the ones above it are tied, so cost never drops an operation to save money. Nothing prices the drivers' time: they are paid by the month whether a truck goes out or not, so the plan cannot spend it and does not try to save it. Their day is a limit instead — the working hours in Config, and the caps below.</div>
+        <div class="hint">Each line only speaks when the ones above it are tied, so cost never drops an operation to save money. What an hour on the road is worth is the one thing left open, and it is what the scenarios differ on: the drivers are paid by the month whether a truck goes out or not, so the cheapest plan does not try to save their hours and sends the small cheap trucks out on many trips, while a plan that weighs hours heavily puts the work on fewer, bigger, dearer trucks. Every scenario does the same operations — the two lines above cost say so — and the working hours in Config and the caps below are hard limits either way. The scenarios, and how heavily each one weighs an hour, are the <code>scenarios</code> block of <code>docs/waste_defaults.json</code>.</div>
         <div class="btn-row"><button id="resetCosts">Back to the defaults</button></div>
       </fieldset>
     </div>
@@ -572,8 +616,15 @@ let chicos = M.defaultChicos();
 // how many operations may take a container out of it.
 let stock = M.defaultContainerStock();
 const COLORS = ["#2563eb", "#dc2626", "#059669", "#d97706", "#7c3aed", "#0891b2", "#db2777", "#65a30d"];
-let lastRequestVehicles = [];
-let lastVehicleInfo = {};
+// The day as planned under each scenario (see M.SCENARIOS): one entry
+// per scenario, in its order, each holding what was asked of the solver
+// and what came back. They are all solved from the same day, so the
+// only difference between them is the scenario's time weight and the
+// figures really are comparable. `key` of the one on the map is in
+// activeScenario; a run is put here before it has a solution, so the
+// cards can show the ones still being planned.
+let scenarioRuns = [];
+let activeScenario = null;
 // The shifts (see WasteModel.shiftsOf) and the lunch the last request
 // was built with, so that the cards read right even if the Config tab
 // changes while the plan is on screen.
@@ -1220,8 +1271,7 @@ function plural(n, word) {
 function applyCsv(read) {
   nextOpId = 1;
   operations = read.map((op) => Object.assign({ id: nextOpId++ }, op));
-  routeLayer.clearLayers();
-  document.getElementById("summary").innerHTML = "";
+  clearPlan();
   renderPoints();
   const bounds = L.latLngBounds(operations.map((op) => [op.lat, op.lng]));
   bounds.extend([depot.lat, depot.lng]);
@@ -1595,8 +1645,7 @@ function money(value) {
 // any change clears it; the prices themselves are picked up by the next
 // Plan.
 function onCostChange() {
-  routeLayer.clearLayers();
-  document.getElementById("summary").innerHTML = "";
+  clearPlan();
   refreshCostHints();
   // An early start priced at nothing is a warning, so the problems box
   // follows the prices too.
@@ -1745,7 +1794,11 @@ function readTimes() {
   };
 }
 
-function buildRequest() {
+// The day as one solver request. `timeWeight` is the only thing a
+// scenario changes about it (see the scenarios block of
+// docs/waste_defaults.json); everything else is the day as the tabs
+// have it, which is what makes the plans comparable.
+function buildRequest(timeWeight) {
   const search = readSearch();
   return M.buildRequest({
     depot, operations, fleet, chicos, stock, times: readTimes(),
@@ -1753,6 +1806,7 @@ function buildRequest() {
     geometry: search.geometry,
     exploration: search.exploration,
     threads: search.threads,
+    timeWeight,
   });
 }
 
@@ -1798,16 +1852,28 @@ function drawRoute(latlngs, color, name, dashed) {
   }).addTo(routeLayer).bindTooltip(name, { sticky: true });
 }
 
-function showSolution(sol, stepInfo) {
-  routeLayer.clearLayers();
-  const opColor = {};
+// The shifts a plan was made with, the fallback covering a day with no
+// lunch in it (see WasteModel.shiftsOf).
+function shiftsOfPlan() {
+  return lastShifts.length ? lastShifts : [{ key: "day", label: "day" }];
+}
+
+// What a plan comes to: the figures the scenario table compares, the
+// summary repeats and the route cards are built from. Everything here
+// is read off one solution, so two runs of it are comparable as long as
+// the day behind them is the same one — which is what a scenario is.
+function planStats(run) {
+  const sol = run.solution;
+  const vehicleInfo = run.vehicleInfo;
+  const shifts = shiftsOfPlan();
+
   // An operation is one or two shipments, so a solution can leave part
   // of one behind: an exchange whose empty half found no container in
   // the yard still has its full container picked up. Only the ones with
   // nothing done at all count as unassigned.
   const unassignedSteps = new Set((sol.unassigned || []).map((u) => u.id));
   const stepsOfOp = {};
-  for (const stepId of Object.keys(stepInfo || {})) {
+  for (const stepId of Object.keys(run.stepInfo || {})) {
     const opId = M.opIdOfStep(Number(stepId));
     (stepsOfOp[opId] = stepsOfOp[opId] || []).push(Number(stepId));
   }
@@ -1819,22 +1885,17 @@ function showSolution(sol, stepInfo) {
     if (dropped === steps.length) unassignedOps.add(Number(opId));
     else partialOps.add(Number(opId));
   }
-  const routes = sol.routes || [];
-  const cards = [];
+
   // Lunch is spent at the company, so a truck's day is one VROOM
   // vehicle per shift (morning, afternoon) and a solution holds one
   // route per shift. The trucks of a type are identical, so the k-th
   // vehicle of a type used in the morning and the k-th used in the
-  // afternoon are shown as the same truck: one card, lunch in between.
-  const shifts = lastShifts.length ? lastShifts : [{ key: "day", label: "day" }];
-  const firstShift = shifts[0].key;
-  const trucksTotal = Object.values(lastVehicleInfo).filter((v) => !v.chico && v.shift === firstShift).length;
-  const chicosTotal = Object.values(lastVehicleInfo).filter((v) => v.chico && v.shift === firstShift).length;
+  // afternoon are the same truck, with lunch in between.
   const trucks = {};
   const usedOfShift = {};
   const chicosOfShift = {};
-  for (const r of routes) {
-    const info = lastVehicleInfo[r.vehicle] || {};
+  for (const r of sol.routes || []) {
+    const info = vehicleInfo[r.vehicle] || {};
     const shift = info.shift || "day";
     const key = `${info.type}|${shift}`;
     usedOfShift[key] = (usedOfShift[key] || 0) + 1;
@@ -1844,10 +1905,57 @@ function showSolution(sol, stepInfo) {
     truck.byShift[shift] = r;
     if (info.chico) chicosOfShift[shift] = (chicosOfShift[shift] || 0) + 1;
   }
-  const chicosUsed = Math.max(0, ...Object.values(chicosOfShift));
   const typeRank = (t) => { const i = M.TYPE_ORDER.indexOf(t); return i < 0 ? M.TYPE_ORDER.length : i; };
   const truckList = Object.values(trucks).sort((a, b) => typeRank(a.type) - typeRank(b.type) || a.k - b.k);
-  const trucksUsed = truckList.length;
+
+  // How many trucks and chicos there were to use. A truck is offered to
+  // the solver several times over — with a chico, at each early start —
+  // and those are alternatives, not more trucks, so only the plain
+  // vehicle of the first shift counts as one.
+  const firstShift = shifts[0].key;
+  const offered = Object.values(vehicleInfo).filter((v) => v.shift === firstShift && !v.early);
+
+  // What the day costs in money: every route's kilometres at the price
+  // of the truck that drove them, plus the hours any truck put in before
+  // the working day. The solver's own cost figure is a rescaled internal
+  // number and is not money, so it is kept for debugging only.
+  let money = 0;
+  let moneyKnown = (sol.routes || []).length > 0;
+  for (const r of sol.routes || []) {
+    const info = vehicleInfo[r.vehicle] || {};
+    if (r.distance == null) { moneyKnown = false; break; }
+    money += M.moneyPerKm(M.configKeyOf(info.type, info.chico), lastCosts) * (r.distance / 1000);
+    money += M.moneyForEarlyStart(info.early || 0, lastCosts);
+  }
+
+  const s = sol.summary || {};
+  const ct = s.computing_times;
+  return {
+    truckList,
+    trucksUsed: truckList.length,
+    trucksTotal: offered.filter((v) => !v.chico).length,
+    // A chico can come off at the company over lunch, so what the day
+    // needs is the most any one shift has out at once.
+    chicosUsed: Math.max(0, ...Object.values(chicosOfShift)),
+    chicosTotal: offered.filter((v) => v.chico).length,
+    duration: s.duration,
+    distance: s.distance,
+    money, moneyKnown,
+    unassignedOps, partialOps,
+    solvedMs: ct ? ct.loading + ct.solving : null,
+  };
+}
+
+function showSolution(run) {
+  const sol = run.solution;
+  const stepInfo = run.stepInfo;
+  const vehicleInfo = run.vehicleInfo;
+  const st = run.stats;
+  routeLayer.clearLayers();
+  const opColor = {};
+  const cards = [];
+  const shifts = shiftsOfPlan();
+  const { truckList, trucksUsed, unassignedOps, partialOps } = st;
 
   truckList.forEach((truck, i) => {
     const color = COLORS[i % COLORS.length];
@@ -1872,7 +1980,7 @@ function showSolution(sol, stepInfo) {
         items.push(`<li class="company"><span class="t"></span><span>stays at the company${shifts.length > 1 ? ` in the ${shift.label}` : ""}</span></li>`);
         return;
       }
-      const info = lastVehicleInfo[r.vehicle] || {};
+      const info = vehicleInfo[r.vehicle] || {};
       if (info.chico) chicoShifts.push(shift.label);
       if (info.early > 0) earlyBy = info.early;
       const withChico = info.chico ? " with the chico" : "";
@@ -1918,32 +2026,19 @@ function showSolution(sol, stepInfo) {
       <ol>${items.join("")}</ol></details>`);
   });
 
-  // What the day costs in money: every route's kilometres at the price
-  // of the truck that drove them, plus the hours any truck put in before
-  // the working day. The solver's own cost figure is a rescaled internal
-  // number, kept on hover for debugging.
-  let runningCost = 0;
-  let costKnown = routes.length > 0;
-  for (const r of routes) {
-    const info = lastVehicleInfo[r.vehicle] || {};
-    if (r.distance == null) { costKnown = false; break; }
-    runningCost += M.moneyPerKm(M.configKeyOf(info.type, info.chico), lastCosts) * (r.distance / 1000);
-    runningCost += M.moneyForEarlyStart(info.early || 0, lastCosts);
-  }
-
   const s = sol.summary || {};
-  const ct = s.computing_times ? `${s.computing_times.loading + s.computing_times.solving} ms` : "–";
+  const ct = st.solvedMs != null ? `${st.solvedMs} ms` : "–";
   const unassignedTitle = unassignedOps.size ? ` title="operations ${[...unassignedOps].sort((a, b) => a - b).join(", ")}"` : "";
   const partialNote = partialOps.size
     ? `<span class="v muted" style="display:inline;font-size:12px" title="operations ${[...partialOps].sort((a, b) => a - b).join(", ")}: partly done"> +${partialOps.size} partly</span>`
     : "";
   document.getElementById("summary").innerHTML = `
     <div class="stats">
-      <div><span class="k">Trucks</span><span class="v">${trucksUsed}<span class="v muted" style="display:inline;font-size:12px"> / ${trucksTotal}</span></span></div>
-      <div><span class="k">Chicos</span><span class="v">${chicosUsed}<span class="v muted" style="display:inline;font-size:12px"> / ${chicosTotal}</span></span></div>
-      <div><span class="k">Driving</span><span class="v">${s.duration != null ? fmtDuration(s.duration) : "–"}</span></div>
-      <div><span class="k">Distance</span><span class="v">${s.distance != null ? (s.distance / 1000).toFixed(1) + " km" : "–"}</span></div>
-      <div title="solver cost ${s.cost ?? "–"}"><span class="k">Cost</span><span class="v">${costKnown ? esc(money(runningCost)) : "–"}</span></div>
+      <div><span class="k">Trucks</span><span class="v">${st.trucksUsed}<span class="v muted" style="display:inline;font-size:12px"> / ${st.trucksTotal}</span></span></div>
+      <div><span class="k">Chicos</span><span class="v">${st.chicosUsed}<span class="v muted" style="display:inline;font-size:12px"> / ${st.chicosTotal}</span></span></div>
+      <div><span class="k">Driving</span><span class="v">${st.duration != null ? fmtDuration(st.duration) : "–"}</span></div>
+      <div><span class="k">Distance</span><span class="v">${st.distance != null ? (st.distance / 1000).toFixed(1) + " km" : "–"}</span></div>
+      <div title="solver cost ${s.cost ?? "–"}"><span class="k">Cost</span><span class="v">${st.moneyKnown ? esc(money(st.money)) : "–"}</span></div>
       <div${unassignedTitle}><span class="k">Unassigned</span><span class="v ${unassignedOps.size ? "bad" : "muted"}">${unassignedOps.size}${partialNote}</span></div>
       <div><span class="k">Solved in</span><span class="v muted">${ct}</span></div>
     </div>
@@ -1956,57 +2051,237 @@ function showSolution(sol, stepInfo) {
   }
 }
 
+// ---------- the scenarios, side by side ----------
+//
+// The figures a plan is chosen on, in the order they are read. Each one
+// says how to show itself and what "better" means, which is always
+// less: fewer trucks out, less time on the road, fewer kilometres, less
+// money. `get` returns null when the solution does not carry the figure
+// (no distance without geometry, for one), and such a plan simply takes
+// no part in that row's comparison.
+const SCENARIO_METRICS = [
+  {
+    label: "Trucks",
+    get: (st) => st.trucksUsed,
+    show: (st) => `${st.trucksUsed}<small> / ${st.trucksTotal}</small>`,
+    // A truck is a truck: "+33%" says nothing a plain "+1" does not.
+    delta: (d) => (d > 0 ? `+${d}` : `${d}`),
+  },
+  {
+    label: "Driving",
+    get: (st) => st.duration ?? null,
+    show: (st) => (st.duration != null ? fmtDuration(st.duration) : "–"),
+  },
+  {
+    label: "Distance",
+    get: (st) => st.distance ?? null,
+    show: (st) => (st.distance != null ? `${(st.distance / 1000).toFixed(1)}<small> km</small>` : "–"),
+  },
+  {
+    label: "Cost",
+    get: (st) => (st.moneyKnown ? st.money : null),
+    show: (st) => (st.moneyKnown ? esc(money(st.money)) : "–"),
+  },
+];
+
+// How much dearer than the best plan on this row, as the planner would
+// say it: nothing for the best one, a percentage for the rest, and
+// never a rounded-down "+0%" that would read as a tie when it is not.
+function scenarioDelta(metric, value, best) {
+  if (value == null || best == null) return "";
+  if (value === best) return "best";
+  if (metric.delta) return metric.delta(value - best);
+  if (best === 0) return "";
+  const pct = ((value - best) / best) * 100;
+  return pct < 0.5 ? "+<1%" : `+${Math.round(pct)}%`;
+}
+
+// One row per scenario, the figures in fixed columns so they line up
+// down the table and the difference between two plans is a glance
+// rather than an arithmetic. Every row is a button: picking one puts
+// that plan on the map and its routes under the table. Rows fill in as
+// their solve finishes, so the first plan is on screen while the others
+// are still being looked for.
+function renderScenarios() {
+  const box = document.getElementById("scenarios");
+  // A single scenario is not a choice, and a table of one row would
+  // only repeat the summary right below it.
+  if (scenarioRuns.length < 2) { box.innerHTML = ""; return; }
+
+  const done = scenarioRuns.filter((r) => r.stats);
+  const best = SCENARIO_METRICS.map((m) => {
+    const values = done.map((r) => m.get(r.stats)).filter((v) => v != null && isFinite(v));
+    return values.length ? Math.min(...values) : null;
+  });
+
+  const rows = scenarioRuns.map((run) => {
+    const on = run.scenario.key === activeScenario;
+    const label = `<span class="label">${esc(run.scenario.label)}` +
+      (run.stats && run.stats.unassignedOps.size
+        ? `<span class="state err">${run.stats.unassignedOps.size} left out</span>`
+        : "") + `</span>`;
+    if (!run.stats) {
+      const state = run.error ? `<span class="state err">${esc(run.error)}</span>`
+                              : `<span class="state">planning…</span>`;
+      return `<button class="scen" disabled>${label}${state}</button>`;
+    }
+    const cells = SCENARIO_METRICS.map((m, i) => {
+      const d = scenarioDelta(m, m.get(run.stats), best[i]);
+      const cls = d === "best" ? "best" : "";
+      return `<span class="c"><b>${m.show(run.stats)}</b><i class="${cls}">${d}</i></span>`;
+    }).join("");
+    return `<button class="scen${on ? " active" : ""}" data-scenario="${esc(run.scenario.key)}"` +
+           `${on ? " disabled" : ""}>${label}${cells}</button>`;
+  }).join("");
+
+  // While a solve is still running the count is progress; once they
+  // have all settled it is how many plans there are to choose from,
+  // which is not the same number when one of them failed.
+  const pending = scenarioRuns.filter((r) => !r.stats && !r.error).length;
+  const count = pending
+    ? `planning ${done.length + 1} of ${scenarioRuns.length}`
+    : `${done.length} plan${done.length === 1 ? "" : "s"}`;
+  const shown = scenarioRuns.find((r) => r.scenario.key === activeScenario);
+  const hint = shown && shown.scenario.hint
+    ? `<div class="scen-hint">${esc(shown.scenario.label)}: ${esc(shown.scenario.hint)}</div>` : "";
+
+  box.innerHTML =
+    `<div class="scen-head"><span class="t">The same day, ${scenarioRuns.length} ways</span>` +
+    `<span class="n">${count}</span></div>` +
+    `<div class="scen-table">` +
+      `<div class="scen-hdr"><span></span>` +
+      SCENARIO_METRICS.map((m) => `<span>${m.label}</span>`).join("") +
+      `</div>${rows}</div>${hint}`;
+
+  box.querySelectorAll("button[data-scenario]").forEach((b) => {
+    b.onclick = () => selectScenario(b.dataset.scenario);
+  });
+}
+
+// Put another of the plans already found on the map. Nothing is solved
+// again: the run holds its own solution and the request it came from.
+function selectScenario(key) {
+  const run = scenarioRuns.find((r) => r.scenario.key === key);
+  if (!run || !run.stats) return;
+  activeScenario = key;
+  showSolution(run);
+  renderScenarios();
+  showRequestJson(run);
+}
+
+// The JSON sent to the solver, under the summary, when the defaults ask
+// for it (solver.show_request). It belongs to the plan on screen, so it
+// follows the selection rather than the last solve.
+function showRequestJson(run) {
+  if (!M.SOLVER_DEFAULTS.show_request) return;
+  document.getElementById("summary").insertAdjacentHTML("beforeend",
+    `<details class="raw"><summary>Request JSON (${esc(run.scenario.label)})</summary>` +
+    `<pre>${esc(JSON.stringify(run.request, null, 1))}</pre></details>`);
+}
+
+// Wipes the plan without touching the day: what is on the map and in
+// the two boxes under it stops being true the moment the day, the
+// fleet or the prices change.
+function clearPlan() {
+  scenarioRuns = [];
+  activeScenario = null;
+  routeLayer.clearLayers();
+  document.getElementById("scenarios").innerHTML = "";
+  document.getElementById("summary").innerHTML = "";
+}
+
 // ---------- actions ----------
+
+// One solve. Throws with what went wrong so the caller can put it on
+// that scenario's row and go on to the next one: a scenario that fails
+// should not cost the planner the plans that would have worked.
+async function solveRequest(request) {
+  const res = await fetch("/api", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request),
+  });
+  const text = await res.text();
+  let body;
+  try { body = JSON.parse(text); } catch { body = { raw: text }; }
+  if (!res.ok || body.code) {
+    throw new Error(`solver error (${res.status}): ${body.error || body.raw || "unknown"}`);
+  }
+  return body;
+}
+
+// The day, planned once per scenario. The requests are built together,
+// from one reading of the tabs, so the plans differ by the weight on
+// driving time and by nothing else. They are then solved one after the
+// other rather than at once: three solves in parallel would fight over
+// the same cores and the same OSRM, and each plan is shown the moment
+// it arrives anyway, so the first one is on the map about as soon as
+// the single plan of before would have been.
 document.getElementById("solve").onclick = async () => {
   const errors = renderProblems();
   if (errors.length) {
     setStatus("Fix the problems above before planning.", "err");
     return;
   }
-  const { request, stepInfo, vehicleInfo } = buildRequest();
-  lastRequestVehicles = request.vehicles;
-  lastVehicleInfo = vehicleInfo;
   const times = readTimes();
   lastShifts = M.shiftsOf(times);
   lastLunch = { start: times.lunchStart, end: times.lunchEnd };
   lastCosts = readCosts();
-  document.getElementById("summary").innerHTML = "";
+
+  clearPlan();
+  scenarioRuns = M.SCENARIOS.map((scenario) => {
+    const { request, stepInfo, vehicleInfo } = buildRequest(scenario.timeWeight);
+    return { scenario, request, stepInfo, vehicleInfo, solution: null, stats: null, error: null };
+  });
+  renderScenarios();
   setStatus("Planning…", "busy");
   document.getElementById("solve").disabled = true;
+
   // A restricted profile some vehicle is about to use must be served by
   // routing data matching the areas: with older data the plan would
-  // silently avoid the wrong ones, with none the solver fails.
+  // silently avoid the wrong ones, with none the solver fails. Every
+  // scenario asks for the same profiles, so one check covers them all.
   if (ZONES_ENABLED) {
     const status = (await refreshZoneState()) || {};
-    const used = new Set(request.vehicles.map((v) => v.profile));
+    const used = new Set(scenarioRuns[0].request.vehicles.map((v) => v.profile));
     const problems = Object.entries(status)
       .filter(([name]) => used.has(name))
       .map(([name, p]) => zoneProblem(name, p))
       .filter(Boolean);
     if (problems.length) {
       setStatus(`Cannot plan: ${problems.join("; ")}. Open the Zones tab and Apply the areas.`, "err");
+      clearPlan();
       updateSolveButton();
       return;
     }
   }
+
   try {
-    const res = await fetch("/api", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(request),
-    });
-    const text = await res.text();
-    let body;
-    try { body = JSON.parse(text); } catch { body = { raw: text }; }
-    if (!res.ok || body.code) {
-      setStatus(`Solver error (${res.status}): ${body.error || body.raw || "unknown"}`, "err");
-    } else {
-      showSolution(body, stepInfo);
-      setStatus("Day planned.", "ok");
+    for (const run of scenarioRuns) {
+      const label = scenarioRuns.length > 1 ? ` (${run.scenario.label})` : "";
+      setStatus(`Planning…${label}`, "busy");
+      try {
+        run.solution = await solveRequest(run.request);
+        run.stats = planStats(run);
+      } catch (err) {
+        run.error = err.message;
+      }
+      // The first plan to come back goes on the map, so the planner has
+      // something to read while the others are still being looked for.
+      if (run.stats && !activeScenario) {
+        activeScenario = run.scenario.key;
+        showSolution(run);
+        showRequestJson(run);
+      }
+      renderScenarios();
     }
-    if (M.SOLVER_DEFAULTS.show_request) {
-      document.getElementById("summary").insertAdjacentHTML("beforeend",
-        `<details class="raw"><summary>Request JSON</summary><pre>${esc(JSON.stringify(request, null, 1))}</pre></details>`);
+    const failed = scenarioRuns.filter((r) => r.error);
+    if (failed.length === scenarioRuns.length) {
+      setStatus(`Solver error: ${failed[0].error}`, "err");
+    } else if (failed.length) {
+      setStatus(`Day planned, except ${failed.map((r) => r.scenario.label).join(" and ")}: ${failed[0].error}`, "err");
+    } else {
+      setStatus("Day planned.", "ok");
     }
   } catch (err) {
     setStatus(`Request failed: ${err.message}`, "err");
@@ -2020,8 +2295,7 @@ document.getElementById("solve").onclick = async () => {
 document.getElementById("clear").onclick = () => {
   operations = []; nextOpId = 1;
   hideCsvReport();
-  routeLayer.clearLayers();
-  document.getElementById("summary").innerHTML = "";
+  clearPlan();
   map.setView([depot.lat, depot.lng], 13);
   renderPoints();
 };
@@ -2060,8 +2334,7 @@ function applyDefaults() {
 // is not editable in the planner.
 function setCompany({ lat, lng }) {
   depot = { lat, lng };
-  routeLayer.clearLayers();
-  document.getElementById("summary").innerHTML = "";
+  clearPlan();
   renderPoints();
 }
 

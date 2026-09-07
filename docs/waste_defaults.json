@@ -68,6 +68,27 @@
     "max_distance_km": 0,
     "max_tasks": 0
   },
+  "scenarios": [
+    {
+      "_comment": "What the day is solved for, one plan per entry, offered side by side in the planner so the choice between them is the planner's. The solver minimises the money a route costs on the road plus a charge on its driving time, and time_weight is the only thing that changes between the entries: it multiplies that charge, so 1 is money with time merely breaking ties (the plan this planner gave before scenarios existed) and higher values buy less driving with money. Roughly, for a truck averaging 30-40 km/h: a few percent of the cost is time at 1, about half of it in the tens, nearly all of it in the hundreds. On a generated 20-operation day with the fleet and prices below, weight 1 came to 505 km and 9h42 of driving for EUR 348 over 7 trucks, weight 30 to 397 km and 7h49 for EUR 406 over 5, and weight 300 to 355 km and 7h03 for EUR 485 over 2 — road and hours fall together and money rises against both, because what the weight really decides is the size of truck: the cheap small ones carry little and so make many more trips. Note that the driving is added up over the whole fleet, so less of it buys truck-hours rather than a day that ends earlier. Everything else — the fleet, the operations, the prices, the limits, the working day — is identical across the entries, which is what makes the plans comparable. Each one is a full solve, so the day takes as long to plan as there are entries here (about half a second each on that 20-operation day); cut the list to two, or to one, to get that time back. key must be unique, label names the row in the planner's table and hint is the line under it.",
+      "key": "cheapest",
+      "label": "Cheapest",
+      "time_weight": 1,
+      "hint": "What the day costs the company: the kilometres at the price of the truck that drives them. The cheap small trucks carry little, so this is also the most driving."
+    },
+    {
+      "key": "balanced",
+      "label": "Balanced",
+      "time_weight": 30,
+      "hint": "An hour of driving weighs about what the kilometres it covers do. Middle ground: less road than the cheapest day, less money than the shortest one."
+    },
+    {
+      "key": "least-driving",
+      "label": "Least driving",
+      "time_weight": 300,
+      "hint": "The fewest hours on the road, and the fewest kilometres with them: bigger trucks, fewer trips, more money. It is driving added up over the fleet, not when the last truck gets home."
+    }
+  ],
   "solver": {
     "_comment": "geometry, exploration_level and threads are in the planner's Costs tab; show_request has no UI and is only set here. geometry: ask the solver for the driven route (vroom's -g) so the map follows the roads and distances are reported, off draws straight lines between stops. exploration_level: vroom's -x, 0 (fastest) to 5 (best); vroom-conf/config.yml holds the server's own default and this overrides it per request. threads: vroom's -t. show_request: append the JSON sent to the solver under the summary, for debugging.",
     "geometry": true,
