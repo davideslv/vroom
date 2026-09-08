@@ -88,6 +88,14 @@
 // A truck standing in the yard is offered too, as a trip of its own,
 // which is what the answer has to be when nothing fits into a route.
 //
+// What is priced here is money, so the afternoon charge
+// (costs.afternoon_fixed) is deliberately left out even when the trip
+// offered is an afternoon one. That charge is a preference about how
+// to build a day, not a cost the company pays, and by the time a job
+// is being fitted into a plan already on the road the morning is spent
+// anyway: putting it in would only make this figure disagree with the
+// bill.
+//
 // Usage, in two steps because the travel times are fetched in between:
 //
 //   const I = WasteInsert.create(model);

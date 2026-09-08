@@ -39,6 +39,19 @@
 // the company (see shiftsOf and buildRequest). One solve still plans
 // the whole day, choosing what goes before and after lunch.
 //
+// That split is also what makes the afternoon pricable
+// (costs.afternoon_fixed). VROOM's cost function cannot read a clock:
+// every term of it is a function of which jobs a route holds and in
+// what order, never of when they happen, which is exactly what lets
+// its local search score a move from a handful of matrix lookups. But
+// the afternoon is already a set of vehicles here, and charging a
+// vehicle is what that cost function is built for — so a flat charge
+// on the afternoon ones prices the time of day without a single
+// arrival time entering the cost. It cannot leave an operation
+// undone, either: cost ranks below the number of operations assigned,
+// so it only ever decides when the work happens among plans that do
+// all of it.
+//
 // An early start (docs/waste_defaults.json, "working_day" block) lets a
 // truck go out before the working day begins. It extends the day at the
 // front and never moves its end, so it is time worked on top of the day
@@ -139,13 +152,14 @@
   //
   //   cost(route) = chico multiplier x cost per km of the truck type x km
   //                 + REFERENCE_PER_HOUR x driving hours
+  //                 + what this vehicle is charged for going out at all
   //
   // The first term is the company's real cost: the drivers are salaried
   // by the month, so their time is spent whether a truck goes out or
   // not and pricing it would trade fuel against money already gone.
   // Time is a hard limit (the working day, lunch at the company, any
   // cap in `limits`), not a price. Service time is not priced either
-  // (per_task_hour is 0), and no vehicle carries a fixed cost.
+  // (per_task_hour is 0).
   //
   // The second term is not a business cost and is not editable. It has
   // to be there: VROOM derives its internal "unreachable" sentinel from
@@ -157,16 +171,27 @@
   // it only mildly prefers less driving between otherwise equal plans.
   const REFERENCE_PER_HOUR = 3600;
 
+  // The third term is a VROOM `fixed` cost: charged once, when this
+  // vehicle is used at all, and nothing at all when it stays at the
+  // company. Two things are priced that way, both because they are
+  // decisions about a truck rather than about a kilometre — an early
+  // start (costs.early_start_per_hour), which is real money for hours
+  // worked on top of the day, and going out after lunch
+  // (costs.afternoon_fixed), which is not money the company spends but
+  // a preference given a price so the solver can weigh it against the
+  // road. Neither can keep an operation from being done: cost ranks
+  // below the number of operations assigned.
+
   // ---------- scenarios ----------
   //
-  // The two terms above are the whole trade the solver makes, so which
-  // plan comes back is decided by one number: how much a driving hour
-  // weighs against a kilometre. A scenario is that number, and the same
-  // day solved under several of them gives the planner the choice
-  // between a plan that saves money and one that gets the trucks home
-  // earlier. `time_weight` multiplies REFERENCE_PER_HOUR and nothing
-  // else changes — same fleet, same operations, same limits — so the
-  // plans really are comparable.
+  // The road and the hours are the whole trade the solver makes over a
+  // route, so which plan comes back is decided by one number: how much
+  // a driving hour weighs against a kilometre. A scenario is that
+  // number, and the same day solved under several of them gives the
+  // planner the choice between a plan that saves money and one that
+  // gets the trucks home earlier. `time_weight` multiplies
+  // REFERENCE_PER_HOUR and nothing else changes — same fleet, same
+  // operations, same limits — so the plans really are comparable.
   //
   // What the weights mean, in the units VROOM works in: one driving
   // hour costs 100 x per_hour x 3600 and one kilometre 360 x per_km x
@@ -260,7 +285,7 @@
     container_stock: {},
     working_day: { start: "08:00", end: "17:00", lunch_start: "12:00", lunch_end: "13:00", early_start_max_min: 0 },
     operation_times_min: { client_per_container: 10, company_per_visit: 5, company_per_container: 5 },
-    costs: { currency: "\u20ac", per_km: {}, chico_multiplier: {}, early_start_per_hour: 0 },
+    costs: { currency: "\u20ac", per_km: {}, chico_multiplier: {}, early_start_per_hour: 0, afternoon_fixed: 0 },
     limits: { max_travel_time_min: 0, max_distance_km: 0, max_tasks: 0 },
     solver: { geometry: true, exploration_level: 5, threads: 4, show_request: false },
     scenarios: BUILTIN_SCENARIOS,
@@ -647,11 +672,15 @@
     // What a route costs the company, in money:
     //   {currency, per_km: {<truck type>: money},
     //             chico_multiplier: {<chico key>: factor},
-    //             early_start_per_hour: money}
+    //             early_start_per_hour: money,
+    //             afternoon_fixed: money}
     // A truck type missing a price costs 1 a kilometre and a chico
     // without a multiplier costs its truck nothing extra, so a defaults
     // file that says nothing about costs behaves as it did before they
-    // existed.
+    // existed. The two charges default to 0, which is likewise the
+    // behaviour before each of them existed: nothing is paid for an
+    // early start, and the afternoon is worth no more nor less than
+    // the morning.
     function defaultCosts() {
       const src = D.costs || {};
       const perKm = {};
@@ -667,6 +696,7 @@
         per_km: perKm,
         chico_multiplier: multiplier,
         early_start_per_hour: nonNegativeNumber(src.early_start_per_hour, 0),
+        afternoon_fixed: nonNegativeNumber(src.afternoon_fixed, 0),
       };
     }
 
@@ -745,6 +775,60 @@
       // an hour more on the road whatever the scenario asks for.
       if (dearest <= 0) return Math.round(seconds * scenarioTimeWeight(timeWeight));
       return Math.max(1, Math.round((moneyForEarlyStart(seconds, costs) / dearest) * COST_SCALE));
+    }
+
+    // What sending a truck out after lunch is worth avoiding, as a
+    // figure in money: a flat charge per truck that works the
+    // afternoon, one price for the whole fleet, 0 when the planner
+    // wants the two halves of the day to weigh the same.
+    //
+    // Unlike an early start this is not money the company actually
+    // spends — nobody is paid for the afternoon who is not paid for
+    // the morning. It is a preference given a price, because a price
+    // is the only language the solver has for trading it against the
+    // road. So it is deliberately kept out of what a plan is reported
+    // to cost: it decides plans, it does not describe them.
+    function moneyForAfternoon(costs) {
+      const c = costs || defaultCosts();
+      return nonNegativeNumber(c.afternoon_fixed, 0);
+    }
+
+    // The same figure as VROOM wants it: a `fixed` cost on every
+    // afternoon vehicle, on the scale solverPerKm puts kilometres on
+    // (see solverEarlyStart for why one unit is one kilometre at
+    // per_km 1, and why the scenario's time weight does not enter into
+    // a charge that is money).
+    //
+    // This is the whole of the afternoon penalty, and it is a charge
+    // on the vehicle because that is the only kind of charge VROOM's
+    // cost function can express. Every term of that function reads the
+    // jobs a route holds and their order, never the clock — which is
+    // what lets the local search score a move from a handful of matrix
+    // lookups — so no cost can be attached to an arrival time. What
+    // makes the time of day pricable anyway is that lunch has already
+    // split each truck into a morning and an afternoon vehicle (see
+    // shiftsOf): "the afternoon" is a set of vehicles before it is a
+    // time.
+    //
+    // Being per vehicle, it prices going out after lunch, not each
+    // operation done then: a truck already out does its next afternoon
+    // operation for free. The morning therefore fills up first and the
+    // leftovers land on as few afternoon trucks as the day allows.
+    function solverAfternoonFixed(costs, timeWeight) {
+      const money = moneyForAfternoon(costs);
+      if (!(money > 0)) return 0;
+      const dearest = dearestMoneyPerKm(costs);
+      // Nothing is priced per kilometre, so there is no money scale to
+      // put this on. What is left is the charge on driving time, where
+      // one unit is one second of driving at time weight 1, and a unit
+      // of currency is taken to be worth a minute of it. Arbitrary, in
+      // the same way the early start's fallback is, and reached only
+      // by a cost model that prices nothing at all.
+      const SECONDS_PER_UNIT = 60;
+      if (dearest <= 0) {
+        return Math.max(1, Math.round(money * SECONDS_PER_UNIT * scenarioTimeWeight(timeWeight)));
+      }
+      return Math.max(1, Math.round((money / dearest) * COST_SCALE));
     }
 
     // A scenario's time weight as buildRequest may use it: 1 (today's
@@ -907,6 +991,11 @@
       const weight = scenarioTimeWeight(timeWeight);
       const perHour = Math.round(REFERENCE_PER_HOUR * weight);
       const perKm = solverPerKm(costs);
+      // What a truck is charged for working the afternoon, the same for
+      // every one of them, 0 when the planner prices the two halves of
+      // the day alike. Computed once: it depends on the price list, not
+      // on the vehicle.
+      const afternoonFixed = solverAfternoonFixed(costs, weight);
       const company = [depot.lng, depot.lat];
 
       const vehicles = [];
@@ -937,12 +1026,17 @@
         const perKmForVehicle = perKm[configKeyOf(type, chico)];
         const vehicleCosts = { per_hour: perHour, per_task_hour: 0 };
         if (perKmForVehicle > 0) vehicleCosts.per_km = perKmForVehicle;
-        // An early start is the one thing besides the road that a plan
-        // pays for, and it is paid per truck that goes out early rather
-        // than per kilometre: VROOM's `fixed` cost, charged exactly when
-        // this vehicle is used. Nothing else on any vehicle is fixed, so
-        // it is the whole price of the earliness.
-        if (early > 0) vehicleCosts.fixed = solverEarlyStart(early, costs, weight);
+        // Two things besides the road are paid for, and both are paid
+        // per truck that goes out rather than per kilometre: VROOM's
+        // `fixed` cost, charged exactly when this vehicle is used. One
+        // is the earliness of an early start, the other is working the
+        // afternoon. They are summed rather than taken one or the
+        // other because a vehicle can carry both: a lunch beginning at
+        // the day's start leaves the afternoon as the first shift, and
+        // the first shift is the one offered an early start.
+        const fixed = (early > 0 ? solverEarlyStart(early, costs, weight) : 0) +
+                      (shift.key === "afternoon" ? afternoonFixed : 0);
+        if (fixed > 0) vehicleCosts.fixed = fixed;
         const parts = [description];
         if (shifts.length > 1) parts.push(shift.label);
         if (early > 0) parts.push(`from ${clockOf(shift.start - early)}`);
@@ -1186,6 +1280,17 @@
                   "to gain by it. Price an hour of early start in the Costs tab, or set " +
                   "the early start to 0 minutes in Config.");
         }
+      }
+      // The afternoon charge rides on the afternoon vehicles, so a day
+      // that has no afternoon shift — no lunch at all, or a lunch
+      // running to the end of the day — has nothing to charge it to,
+      // and a price set here is quietly doing nothing.
+      if (moneyForAfternoon(costs) > 0 &&
+          !shiftsOf(times).some((s) => s.key === "afternoon")) {
+        warning("Working the afternoon is priced, but this day has no afternoon: the " +
+                "charge falls on trucks going out after lunch, and without a lunch the " +
+                "day is one shift. Set a lunch in Config, or price the afternoon at 0 " +
+                "in the Costs tab.");
       }
       const total = TYPE_ORDER.reduce((n, t) => n + (fleet[t] || 0), 0);
       if (total === 0) error("The fleet is empty: set at least one truck in Config.");
@@ -1491,7 +1596,8 @@
       takesContainerOut, stockUsers, chicosOffered, defaultTimes, shiftsOf,
       earlyStartsOf, earlyStartMaxOf, clockOf,
       defaultCosts, moneyPerKm, dearestMoneyPerKm, solverPerKm,
-      moneyForEarlyStart, solverEarlyStart, scenarioTimeWeight,
+      moneyForEarlyStart, solverEarlyStart,
+      moneyForAfternoon, solverAfternoonFixed, scenarioTimeWeight,
       defaultLimits, configKeyOf,
       profileFor, pointInZone, zonesAt, blockedProfilesAt, describeProfiles,
       opIdOfStep, describe, buildRequest, validate,

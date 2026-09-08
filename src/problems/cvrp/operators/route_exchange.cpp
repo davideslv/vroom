@@ -48,7 +48,7 @@ void RouteExchange::compute_gain() {
                                                       t_route.size()));
 
   t_gain = s_route.empty()
-             ? _sol_state.route_evals[s_vehicle]
+             ? _sol_state.route_evals[t_vehicle]
              : std::get<0>(utils::addition_eval_delta(_input,
                                                       _sol_state,
                                                       target,
@@ -57,6 +57,20 @@ void RouteExchange::compute_gain() {
                                                       source,
                                                       0,
                                                       s_route.size()));
+
+  // Fixed costs only move when a route switches between empty and
+  // non-empty: with both routes non-empty, each vehicle goes on paying
+  // its own whatever the exchange does, so the two cancel out and
+  // addition_eval_delta is right to ignore them. The route_evals
+  // branches above already carry the fixed cost of a vehicle left
+  // empty by the exchange; what is missing is the one newly incurred
+  // by a vehicle that had no route and ends up with one.
+  if (s_route.empty()) {
+    s_gain.cost -= _input.vehicles[s_vehicle].fixed_cost();
+  }
+  if (t_route.empty()) {
+    t_gain.cost -= _input.vehicles[t_vehicle].fixed_cost();
+  }
 
   stored_gain = s_gain + t_gain;
   gain_computed = true;

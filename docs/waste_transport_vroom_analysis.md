@@ -447,10 +447,13 @@ stated order: operations first, then what they cost to drive.
   fuel against money already gone, and a plan using one more driver to
   save kilometres is the better plan. Time is a hard limit instead
   (the working day, lunch at the company, the caps in `limits`), never
-  a price. So no vehicle carries a `fixed` cost, `per_task_hour` is 0,
-  and `route_duration_quadratic` (the extension of this fork in
+  a price. So `per_task_hour` is 0 and `route_duration_quadratic` (the
+  extension of this fork in
   [route-duration-quadratic.patch](../vroom-custom/route-duration-quadratic.patch))
-  is not used, though the patch stays in the build.
+  is not used, though the patch stays in the build. The only `fixed`
+  costs any vehicle carries are the two decisions priced per truck
+  rather than per kilometre: an early start, and working the
+  afternoon.
 - The planner therefore states one figure per truck type, the **cost
   of a kilometre** in money, and one **multiplier per chico**: with the
   trailer on, that truck's kilometre costs multiplier times as much.
@@ -489,6 +492,123 @@ stated order: operations first, then what they cost to drive.
   (`-x 5`) and several threads (`-t`). The planner sends both as
   request options (`x`, `t`), which vroom-express applies over the
   defaults of [config.yml](../vroom-conf/config.yml).
+
+### Pricing the time of day
+
+The company would rather have an operation done in the morning than in
+the afternoon. That looks like a cost on a job's start time, and it is
+worth being precise about why it cannot be one.
+
+**VROOM's cost function cannot read a clock.** Every term of it —
+`fixed` per used vehicle, `per_hour` and `per_km` over the edges,
+`per_task_hour` over setup and service ([`Eval`](../src/structures/vroom/eval.h),
+`route_eval_for_vehicle` in [helpers.cpp](../src/utils/helpers.cpp)) —
+is a function of *which* jobs a route holds and *in what order*, never
+of when they happen. Time enters only as feasibility, through the
+earliest/latest propagation of [`TWRoute`](../src/structures/vroom/tw_route.h);
+waiting is free. That is not an oversight but the thing that makes the
+search work: `addition_eval` scores a move from a handful of matrix
+lookups, the deltas are additive and independent of the schedule, and
+`Eval` behaves as a group under `+` and `-`. A term reading a job's
+arrival time would break every operator's gain computation and the
+cached per-rank gains in `SolutionState`. So a literal "this job starts
+at 14:20, charge X" is not a cost tweak; it is a different solver.
+
+**The shift split makes it expressible anyway.** Lunch is spent at the
+company, so a physical truck is already two vehicles, a morning one and
+an afternoon one (`shiftsOf` in
+[waste_model.js](../frontend/public/waste_model.js)). The afternoon is
+a set of vehicles before it is a time, and charging a vehicle is
+precisely what `fixed` is for. `costs.afternoon_fixed` is that charge:
+one figure for the whole fleet, put on every afternoon vehicle, on the
+same scale as the kilometres (`solverAfternoonFixed`, which normalises
+it exactly as `solverEarlyStart` does). No arrival time enters the cost
+function, and no C++ changes.
+
+Three consequences worth stating:
+
+- It is **per truck, not per operation**. A truck already out after
+  lunch does its next afternoon operation for free. So it prices going
+  out after lunch at all: the morning fills up first, and the leftovers
+  land on as few afternoon trucks as the day allows. Pricing each
+  afternoon operation instead would mean `per_task_hour` on the
+  afternoon vehicles — the same trick, a different lever, and not what
+  the planner offers today.
+- It **cannot leave an operation undone**. Cost ranks below the
+  assigned count, so a charge of any size only decides when the work
+  happens among plans that do all of it — the same guarantee the early
+  start has.
+- It is **not money**. Nobody is paid for the afternoon who is not paid
+  for the morning; the figure is a preference given a price, because a
+  price is the only language the solver has for trading it against the
+  road. It is therefore kept out of what a plan is reported to cost,
+  unlike the early start, which is real hours worked. With no lunch
+  there is no afternoon shift to charge and the planner warns that the
+  price is doing nothing.
+
+**When it actually bites**, which is narrower than it first appears. On
+a day cut evenly the two shifts cost the solver exactly the same, and
+the plan comes out in the morning without any charge at all — measured
+over five random 14-to-22-operation days on the default 08:00–12:00 /
+13:00–17:00 split, every one was already all-morning at a price of 0,
+and a price of 20 changed none of them. The afternoon work such a plan
+still contains is work the morning could not hold, and no price moves
+that, cost ranking below the assigned count. What the charge is for is
+a day cut unevenly: with lunch at 10:00–11:00 (a 2h morning against a
+6h afternoon) the afternoon is genuinely the cheaper half — three
+trucks rather than eight — and a price of 0 puts *all* 32 tasks of a
+16-operation day in it, where a price of 10 buys the whole morning back
+for 0.6 km more driving.
+
+It has a second use on an even day: the morning currently wins a tie
+only because morning vehicles are offered first and the construction
+order breaks ties, not because anything in the model prefers it. Any
+non-zero charge turns that accident into a stated preference.
+
+Worth recording, since it was diagnosed the hard way: before the
+`RouteExchange` fix below, the charge appeared to be much weaker than
+it is. A truck offered an early start would take the paid early vehicle
+when its free ordinary twin could do the same route, so the morning on
+offer cost €20 that bought nothing and the afternoon charge had to
+clear that phantom before it could move anything. See **Fixed costs and
+whole-route moves**.
+
+### Fixed costs and whole-route moves
+
+Both per-truck charges above — the early start and the afternoon — rely
+on the solver being able to notice that a route is on the wrong
+vehicle. Moving a whole route from one vehicle to another is
+`RouteExchange`'s job, and it was getting the fixed costs wrong in a
+way that made exactly that move invisible. Two defects, both from
+upstream
+([0140bdd4](https://github.com/VROOM-Project/vroom/commit/0140bdd4),
+fixed here in
+[route_exchange.cpp](../src/problems/cvrp/operators/route_exchange.cpp);
+the vrptw operator inherits `compute_gain`, so one fix covers both):
+
+- `t_gain` read `route_evals[s_vehicle]` where it needed
+  `route_evals[t_vehicle]`. In that branch the source route is empty,
+  so `route_evals[s_vehicle]` is 0 and the target's whole route eval
+  went missing. Not dead code: `local_search.cpp` enumerates only the
+  pair with `source < target`, calling the operator symmetric, so
+  whichever of the two vehicles has the lower rank may well be the
+  empty one.
+- Neither branch charged the fixed cost newly incurred by a vehicle
+  that had no route and ends up with one. `addition_eval_delta` knows
+  nothing about fixed costs — rightly so, since with both routes
+  non-empty each vehicle goes on paying its own and they cancel — but
+  the empty cases need the term adding, exactly as `relocate.cpp`
+  already does.
+
+What this cost in practice: a poliban offered a 60-minute early start
+took the 07:00 vehicle and its €20 charge for a route its free 08:00
+twin finished by 11:25, because moving the route between the two
+showed a gain of zero. Since the two shifts are separate vehicles, the
+same blindness applied to the morning/afternoon choice and to a chico
+taken when the plain truck would do. After the fix that day plans on
+the free 08:00 vehicle at every afternoon price including 0; across the
+regression days above nothing got worse and an 18-operation day came
+down from 449 km to 429.
 
 ## Re-planning during the day
 
