@@ -276,11 +276,26 @@ is the first of them.
 ## Dynamics: operations added during the day
 
 From time to time a new operation is requested while the trucks are
-already out. It would be useful to be able to insert it into the
-running plan: re-plan from the current situation (where each truck is,
-what it carries, what it has already done) without discarding the
-work already done. Travel times from the current truck positions are
-obtained from OSRM at that moment.
+already out, and it has to be fitted into the running plan without
+discarding the work already done.
+
+Implemented, in the planner's **Extra job** tab: the plan on screen is
+taken as fixed and the job is slotted into it, rather than the day being
+planned again. A clock says where the day stands ("it is now 11:20"),
+which freezes every route up to the last stop its truck has already
+left; the job is then offered to every place after that which can take
+it — the loading rules, the end of the shift, the no-go areas and the
+per-truck caps all still hold — and the two cheapest are shown, priced
+in the kilometres they add at the price of the truck that would drive
+them. A truck still in the yard is offered as a trip of its own, which
+is the answer when nothing fits into a route.
+
+The solver has nothing to do with this. Once the plan is fixed, all that
+is missing to price a detour is how long the roads take, and that comes
+from the same OSRM instances the plan itself was built on. Nothing is
+committed: the tab says who could take the job and what it would cost,
+which is what a dispatcher needs on the phone. Full description in
+[extra_job.md](./extra_job.md).
 
 ## Out of scope
 

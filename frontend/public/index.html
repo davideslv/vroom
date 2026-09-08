@@ -10,6 +10,7 @@
 <script src="defaults.js"></script>
 <script src="zones.js"></script>
 <script src="waste_model.js"></script>
+<script src="waste_insert.js"></script>
 <style>
   :root {
     --bg: #eef0f4;
@@ -311,6 +312,23 @@
   .hint code { font-size: 11.5px; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; color: var(--ink-2); }
   fieldset > .hint:last-child { margin-top: 10px; }
 
+  /* ============================= extra job ============================= */
+  /* Where one more job fits into a plan already on the road. The option
+     cards reuse the route cards of a plan, since they are the same
+     thing: a truck's remaining day, with the new stops woven into it. */
+  #extraResult:empty { display: none; }
+  #extraResult { display: flex; flex-direction: column; gap: 10px; }
+  .ro { display: flex; align-items: center; height: 33px; font-size: 12.5px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+  .notice { font-size: 12px; line-height: 1.45; border-radius: var(--r); padding: 9px 11px; background: var(--panel); border: 1px solid var(--line); color: var(--ink-2); }
+  .notice.err { background: #fef2f2; border-color: #fecaca; color: var(--danger); }
+  .notice.warn { background: #fffbeb; border-color: #fde68a; color: var(--warn); }
+  .route.opt > summary .name small { font-weight: 500; color: var(--ink-3); }
+  .route.opt.shown > summary { background: var(--brand-soft); }
+  .route ol li.new { color: var(--ink); font-weight: 600; }
+  .route ol li.new::before { background: var(--rc); box-shadow: 0 0 0 2px #fff, inset 0 0 0 2px var(--rc); }
+  .route ol li .late { color: var(--warn); font-size: 11px; font-weight: 500; }
+  .opt-why { padding: 7px 11px 0; font-size: 11.5px; color: var(--ink-3); }
+
   /* ============================ CSV import ============================= */
   /* What a file holds, shown before it replaces the day. */
   #csvReport {
@@ -397,6 +415,7 @@
       <div id="status"><span class="dot"></span><span class="txt">Checking solver…</span></div>
       <div class="tabs">
         <button class="active" data-tab="solve">Plan</button>
+        <button data-tab="extra">Extra job</button>
         <button data-tab="zones">Zones</button>
         <button data-tab="costs">Costs</button>
         <button data-tab="config">Config</button>
@@ -442,6 +461,41 @@
       <div id="scenarios"></div>
 
       <div id="summary"></div>
+    </div>
+
+    <!-- ===== Extra job tab ===== -->
+    <!-- One more job, into a day that is already on the road. Nothing
+         is solved again: the plan on screen is taken as given and the
+         job is slotted into it, priced with travel times fetched
+         straight from OSRM (frontend/server.js proxies them at
+         /osrm/<profile>/...). The logic is in waste_insert.js and the
+         planner-facing description in docs/extra_job.md. -->
+    <div class="panel" id="tab-extra" hidden>
+      <fieldset>
+        <legend>Where the day stands</legend>
+        <div class="grid3">
+          <div class="field"><span>It is now</span><input id="nowClock" type="time" step="60" /></div>
+          <div class="field"><span>On the road</span><span class="ro" id="nowState">—</span></div>
+          <button id="nowLive">Real clock</button>
+        </div>
+        <div class="hint">The clock the question is asked at. Everything a truck has already left is history and stays as planned: the job can only go in after it, which is what makes this different from planning the day again. Move the clock to try the same job earlier or later in the day.</div>
+      </fieldset>
+
+      <fieldset>
+        <legend>The job that just came in</legend>
+        <div class="grid2">
+          <div class="field"><span>Operation</span><select id="extraType"></select></div>
+          <div class="field"><span>Container</span><select id="extraSize"></select></div>
+        </div>
+        <div class="grid3">
+          <div class="field"><span>Latitude</span><input id="extraLat" type="number" step="0.000001" placeholder="37.030558" /></div>
+          <div class="field"><span>Longitude</span><input id="extraLng" type="number" step="0.000001" placeholder="-7.976093" /></div>
+          <button id="extraFind" class="primary">Where does it fit?</button>
+        </div>
+        <div class="hint">Click the map to put the job somewhere — while this tab is open a click moves this job instead of adding an operation to the day. The day itself is not touched: the plan stays exactly as it was solved, and this only says who could still take one more call.</div>
+      </fieldset>
+
+      <div id="extraResult"></div>
     </div>
 
     <!-- ===== Zones tab ===== -->
@@ -633,6 +687,15 @@ let lastLunch = { start: 0, end: 0 };
 // Prices the last plan was made with, so its cost can be reported in
 // money even if the boxes change afterwards.
 let lastCosts = null;
+// The working day, the caps and the yard the plan was made with, for
+// the same reason: fitting one more job into it (the Extra job tab) has
+// to weigh that job against the day the trucks actually went out with,
+// and the boxes may have moved since — changing the fleet does not
+// throw a plan away.
+let lastTimes = null;
+let lastLimits = null;
+let lastFleet = null;
+let lastStock = null;
 
 // ---------- look of an operation: colour + glyph on a 16x16 grid ----------
 const OP_STYLE = {
@@ -700,6 +763,7 @@ document.querySelectorAll(".tabs button").forEach((btn) => {
     }
     document.getElementById("actions").hidden = btn.dataset.tab !== "solve";
     if (btn.dataset.tab === "zones") refreshZoneState();
+    if (btn.dataset.tab === "extra") enterExtraTab();
   };
 });
 
@@ -805,6 +869,10 @@ function profileLabel(name) {
 // model is rebuilt whenever they change.
 function rebuildModel() {
   M = WasteModel.create(WASTE_RULES, WASTE_DEFAULTS, { ...zoneConfig, zones: zoneList });
+  // The zones decide which routing profile a vehicle uses and which
+  // vehicles may reach a point, so the inserter has to be built from
+  // the same model the plan is.
+  INS = WasteInsert.create(M);
 }
 
 function renderZones() {
@@ -1121,6 +1189,10 @@ function addOperation(lat, lng) {
 map.on("click", (e) => {
   // While an area is being drawn the map places its corners instead.
   if (drawing) return addDrawingPoint(e.latlng.lat, e.latlng.lng);
+  // On the Extra job tab a click moves the job being asked about. That
+  // tab is about a plan that is already made, and adding an operation
+  // to the day would throw away the very thing the question is about.
+  if (onExtraTab()) return setExtraJob(e.latlng.lat, e.latlng.lng);
   addOperation(e.latlng.lat, e.latlng.lng);
 });
 
@@ -1842,12 +1914,17 @@ function esc(s) {
   return String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
 }
 
-// A white casing under the coloured line keeps routes legible where they overlap.
-function drawRoute(latlngs, color, name, dashed) {
+// A white casing under the coloured line keeps routes legible where they
+// overlap. `faint` drops both, for the plan drawn behind one thing that
+// is being looked at (the Extra job tab draws the day it would change).
+function drawRoute(latlngs, color, name, dashed, faint) {
   if (latlngs.length < 2) return;
-  L.polyline(latlngs, { color: "#fff", weight: dashed ? 5 : 7, opacity: .9, lineCap: "round", lineJoin: "round" }).addTo(routeLayer);
+  if (!faint) {
+    L.polyline(latlngs, { color: "#fff", weight: dashed ? 5 : 7, opacity: .9, lineCap: "round", lineJoin: "round" }).addTo(routeLayer);
+  }
   L.polyline(latlngs, {
-    color, weight: dashed ? 2.5 : 4, opacity: .95, lineCap: "round", lineJoin: "round",
+    color, weight: faint ? 2 : (dashed ? 2.5 : 4), opacity: faint ? .35 : .95,
+    lineCap: "round", lineJoin: "round",
     dashArray: dashed ? "7 7" : null,
   }).addTo(routeLayer).bindTooltip(name, { sticky: true });
 }
@@ -2164,6 +2241,9 @@ function selectScenario(key) {
   const run = scenarioRuns.find((r) => r.scenario.key === key);
   if (!run || !run.stats) return;
   activeScenario = key;
+  // An extra job was fitted into the plan that was on screen; this is
+  // another one, with other routes and other room in them.
+  clearExtra();
   showSolution(run);
   renderScenarios();
   showRequestJson(run);
@@ -2183,6 +2263,7 @@ function showRequestJson(run) {
 // the two boxes under it stops being true the moment the day, the
 // fleet or the prices change.
 function clearPlan() {
+  clearExtra();
   scenarioRuns = [];
   activeScenario = null;
   routeLayer.clearLayers();
@@ -2227,6 +2308,10 @@ document.getElementById("solve").onclick = async () => {
   lastShifts = M.shiftsOf(times);
   lastLunch = { start: times.lunchStart, end: times.lunchEnd };
   lastCosts = readCosts();
+  lastTimes = times;
+  lastLimits = readLimits();
+  lastFleet = { ...fleet };
+  lastStock = { ...stock };
 
   clearPlan();
   scenarioRuns = M.SCENARIOS.map((scenario) => {
@@ -2338,6 +2423,352 @@ function setCompany({ lat, lng }) {
   renderPoints();
 }
 
+// ---------- one more job, into a day already on the road ----------
+//
+// The plan is solved in the morning; the phone rings at eleven. This
+// does not solve anything again — the trucks are out and half their
+// stops are done, so a new plan would move work that has physically
+// happened — it takes the plan on screen as given and slots the job
+// into it. All it needs for that is how long the roads take, which
+// comes from OSRM directly (frontend/server.js proxies the routing
+// containers at /osrm/<profile>/...); VROOM is not involved at all.
+// The arithmetic is in waste_insert.js, this is the tab around it.
+let INS = WasteInsert.create(M);
+// The last answer, so an option can be put on the map without asking
+// OSRM again, and the plan it was computed from: an answer about a plan
+// that is no longer on screen is worse than no answer.
+let extraAnswer = null;
+let extraShown = 0;
+let extraJobMarker = null;
+
+const nowClock = document.getElementById("nowClock");
+const extraTypeSel = document.getElementById("extraType");
+const extraSizeSel = document.getElementById("extraSize");
+const extraLat = document.getElementById("extraLat");
+const extraLng = document.getElementById("extraLng");
+
+fillTypeSelect(extraTypeSel, "pickup_full");
+fillSizeSelect(extraSizeSel, M.SIZES.includes(6) ? 6 : M.SIZES[0]);
+// What the job is decides how many stops it needs and what the truck
+// carries between them, so an answer about another kind of job is not
+// an answer about this one.
+extraTypeSel.onchange = () => {
+  extraSizeSel.disabled = !M.OPERATION_TYPES[extraTypeSel.value].needsSize;
+  clearExtra();
+  placeExtraMarker();
+};
+
+// Is this tab the one on screen? It decides what a click on the map
+// means: on the Plan tab it adds an operation to the day, here it moves
+// the job being asked about.
+function onExtraTab() {
+  return !document.getElementById("tab-extra").hidden;
+}
+
+// Seconds since midnight from the clock box, falling back to the start
+// of the working day so the tab always has an answerable question in it.
+function extraNow() {
+  const t = readTimes();
+  const m = /^(\d{1,2}):(\d{2})/.exec(nowClock.value || "");
+  return m ? Number(m[1]) * 3600 + Number(m[2]) * 60 : t.dayStart;
+}
+
+// What the clock does to the plan on screen, in one line: how much of
+// the day is still to come. This is the whole point of the simulated
+// time, so it is worth saying before anything is asked.
+function renderNowState() {
+  const box = document.getElementById("nowState");
+  const run = currentRun();
+  if (!run || !run.stats) { box.textContent = "no plan yet"; return; }
+  const now = extraNow();
+  let out = 0;
+  let todo = 0;
+  for (const r of run.solution.routes || []) {
+    const steps = r.steps || [];
+    const end = steps[steps.length - 1];
+    const start = steps[0];
+    if (!end || !start) continue;
+    if (start.arrival <= now && end.arrival > now) out++;
+    for (const s of steps) {
+      if (s.type !== "start" && s.type !== "end" && s.arrival > now) todo++;
+    }
+  }
+  box.textContent = `${out} truck${out === 1 ? "" : "s"} · ${todo} stop${todo === 1 ? "" : "s"} left`;
+}
+
+// Opening the tab. The clock starts at the real one when the working
+// day is running, and in the middle of the morning otherwise, so that
+// the tab always opens on a day with something left in it: the question
+// only means anything from inside the day.
+function enterExtraTab() {
+  if (!nowClock.value) {
+    const t = readTimes();
+    const d = new Date();
+    const real = d.getHours() * 3600 + d.getMinutes() * 60;
+    const inside = real > t.dayStart && real < t.dayEnd;
+    nowClock.value = fmtClock(inside ? real : Math.round((t.dayStart + t.lunchStart) / 2));
+  }
+  renderNowState();
+  placeExtraMarker();
+}
+
+// The plan the planner is looking at, which is the one an extra job is
+// fitted into: the selected scenario, not the last one solved.
+function currentRun() {
+  return scenarioRuns.find((r) => r.scenario.key === activeScenario) || null;
+}
+
+// The trucks of the plan, named and coloured as its route cards name
+// and colour them, so an option points at a truck the planner can find
+// on the map and in the summary.
+function planTrucks(run) {
+  const names = {};
+  const colors = {};
+  (run.stats.truckList || []).forEach((truck, i) => {
+    const label = (M.TRUCK_TYPES[truck.type] || { label: truck.type }).label.toLowerCase();
+    for (const r of Object.values(truck.byShift)) {
+      names[r.vehicle] = `${label} ${truck.k}`;
+      colors[r.vehicle] = COLORS[i % COLORS.length];
+    }
+  });
+  return { names, colors };
+}
+
+// ---------- asking OSRM ----------
+
+// The travel times and distances between a set of points, from the
+// routing server of one profile. This is the whole of what fitting a
+// job into a plan needs: every detour is arithmetic on this table.
+async function osrmTable(profile, points) {
+  const coords = points.map((p) => `${p[0].toFixed(6)},${p[1].toFixed(6)}`).join(";");
+  const url = `/osrm/${encodeURIComponent(profile)}/table/v1/${encodeURIComponent(profile)}/` +
+              `${coords}?annotations=duration,distance`;
+  const res = await fetch(url);
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok || body.code !== "Ok") {
+    throw new Error(body.error || `${body.code || res.status}: ${body.message || "no travel times"}`);
+  }
+  return { durations: body.durations, distances: body.distances };
+}
+
+// The road itself, for drawing one option. Consecutive stops at the
+// same place (the company, twice over, loading two containers) are one
+// point as far as the road is concerned.
+async function osrmRoute(profile, sequence) {
+  const points = sequence.filter((p, i) => i === 0 || INS.keyOf(p) !== INS.keyOf(sequence[i - 1]));
+  if (points.length < 2) return null;
+  const coords = points.map((p) => `${p[0].toFixed(6)},${p[1].toFixed(6)}`).join(";");
+  const url = `/osrm/${encodeURIComponent(profile)}/route/v1/${encodeURIComponent(profile)}/` +
+              `${coords}?overview=full&geometries=polyline`;
+  const res = await fetch(url);
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok || body.code !== "Ok") return null;
+  return (body.routes || [])[0] || null;
+}
+
+// ---------- the answer ----------
+
+function extraNotice(text, level) {
+  return `<div class="notice${level ? ` ${level}` : ""}">${esc(text)}</div>`;
+}
+
+// One option: the truck, what the detour costs, and the rest of that
+// driver's shift with the new stops in it. The card is the route card
+// of a plan, because that is what it shows.
+function optionCard(option, i, color) {
+  const shift = shiftsOfPlan().length > 1 ? `, ${option.shift.label}` : "";
+  const where = option.spare
+    ? `a trip of its own, out at ${fmtClock(option.timeline[0].at)}`
+    : `${option.delayed} stop${option.delayed === 1 ? "" : "s"} pushed later`;
+  const items = option.timeline.map((t) => {
+    const late = t.moved > 0 ? `<span class="late">+${fmtDuration(t.moved)}</span>` : "";
+    const company = t.kind !== "new" && /at company|the company/.test(t.text);
+    const cls = t.kind === "new" ? "new" : (company ? "company" : "");
+    return `<li class="${cls}"><span class="t">${fmtClock(t.at)}</span><span>${esc(t.text)}</span>${late}</li>`;
+  }).join("");
+  return `<details class="route opt${i === extraShown ? " shown" : ""}" data-option="${i}" style="--rc:${color}"${i === extraShown ? " open" : ""}>
+    <summary><span class="swatch"></span>
+      <span class="name">${esc(option.name)}<small>${esc(shift)}</small></span>
+      <span class="meta">+${(option.extraDistance / 1000).toFixed(1)} km · +${fmtDuration(option.extraDuration)} · ${esc(money(option.extraMoney))}</span>
+    </summary>
+    <div class="opt-why">${esc(where)} · back at the company ${fmtClock(option.endAfter)}, the shift ends ${fmtClock(option.shiftEnd)}</div>
+    <ol>${items}</ol></details>`;
+}
+
+function renderExtraAnswer() {
+  const box = document.getElementById("extraResult");
+  if (!extraAnswer) { box.innerHTML = ""; return; }
+  const { prepared, result, colors } = extraAnswer;
+  const parts = [];
+  for (const p of prepared.problems) parts.push(extraNotice(p, "err"));
+  for (const n of prepared.notes) parts.push(extraNotice(n, "warn"));
+  if (!prepared.problems.length && !result.options.length) {
+    parts.push(extraNotice(
+      "The job fits nowhere today: every truck that could take it is either full, out of hours " +
+      "or barred from the area. It has to go on tomorrow's list.", "err"));
+  }
+  if (result.options.length) {
+    parts.push(`<div class="scen-head"><span class="t">Where it fits</span>` +
+      `<span class="n">${result.fitting} truck${result.fitting === 1 ? "" : "s"} could take it</span></div>`);
+    result.options.forEach((o, i) => {
+      parts.push(optionCard(o, i, colors[o.vehicle] || COLORS[(i + 4) % COLORS.length]));
+    });
+    parts.push(`<div class="hint">Cheapest first: what the detour adds in kilometres, at the price of the ` +
+      `truck that would drive them — the same money the plan itself is bought on. Nothing here has been ` +
+      `given to a truck: this is what it would cost, not a change to the day.</div>`);
+  }
+  box.innerHTML = parts.join("");
+  box.querySelectorAll("details.opt").forEach((d) => {
+    d.querySelector("summary").addEventListener("click", () => showExtraOption(Number(d.dataset.option)));
+  });
+}
+
+// Put one option on the map: the plan as it stands, faint, with that
+// truck's remaining day drawn over it and the new job pinned. The road
+// comes from OSRM, so the line is the one the truck would really drive.
+async function showExtraOption(i) {
+  if (!extraAnswer || !extraAnswer.result.options[i]) return;
+  extraShown = i;
+  const option = extraAnswer.result.options[i];
+  const color = extraAnswer.colors[option.vehicle] || COLORS[(i + 4) % COLORS.length];
+  const run = currentRun();
+  routeLayer.clearLayers();
+  if (run && run.solution) {
+    for (const r of run.solution.routes || []) {
+      const line = r.geometry
+        ? decodePolyline(r.geometry)
+        : (r.steps || []).map((s) => s.location).filter(Boolean).map(([lng, lat]) => [lat, lng]);
+      drawRoute(line, "#8b95a7", "as planned", true, true);
+    }
+  }
+  const road = await osrmRoute(option.route.profile, option.sequence);
+  const line = road && road.geometry
+    ? decodePolyline(road.geometry)
+    : option.sequence.map(([lng, lat]) => [lat, lng]);
+  drawRoute(line, color, `${option.name}, with the extra job`, !(road && road.geometry));
+  placeExtraMarker(color, option.name);
+  // The view settles on the truck that would take the job rather than
+  // on the whole day drawn behind it: what is being looked at is one
+  // route and one new stop.
+  if (line.length > 1) map.fitBounds(L.latLngBounds(line), { padding: [40, 40] });
+  renderExtraAnswer();
+}
+
+// The job itself on the map, in the colour of the truck that would take
+// it once there is an answer, and in its own until then. It carries a
+// "+" where an operation of the day carries its number, because it is
+// not part of the day: nothing here changes the plan or the list.
+function placeExtraMarker(color, note) {
+  if (extraJobMarker) { markerLayer.removeLayer(extraJobMarker); extraJobMarker = null; }
+  const job = extraJobOf();
+  if (!job) return;
+  const tint = color || OP_STYLE[job.type].color;
+  extraJobMarker = L.marker([job.lat, job.lng], { icon: opPin({ ...job, id: "+" }, tint), zIndexOffset: 900 })
+    .addTo(markerLayer)
+    .bindTooltip(`<b>Extra job</b> ${esc(M.describe(job))}` +
+                 `<span class="sub">${esc(note || "not part of the day")}</span>`, { direction: "top" });
+}
+
+// Clicking the map on this tab moves the job being asked about. The
+// day is left alone: an answer is about the plan as it was solved, so
+// adding an operation here would throw away the very thing the
+// question is about.
+function setExtraJob(lat, lng) {
+  extraLat.value = lat.toFixed(6);
+  extraLng.value = lng.toFixed(6);
+  clearExtra();
+  placeExtraMarker();
+}
+
+// The job as the boxes have it, or null when it is not a job yet.
+function extraJobOf() {
+  const lat = Number(extraLat.value);
+  const lng = Number(extraLng.value);
+  if (extraLat.value.trim() === "" || extraLng.value.trim() === "") return null;
+  if (!isFinite(lat) || !isFinite(lng)) return null;
+  return { lat, lng, type: extraTypeSel.value, size: Number(extraSizeSel.value), priority: 0 };
+}
+
+// The whole round trip: read the day, ask OSRM for the travel times of
+// every profile in play, and price every way the job fits.
+async function findExtra() {
+  const run = currentRun();
+  if (!run || !run.stats) {
+    setStatus("Plan the day first: an extra job is fitted into a plan, not into an empty map.", "err");
+    return;
+  }
+  const job = extraJobOf();
+  if (!job) {
+    setStatus("The extra job needs a latitude and a longitude — click the map.", "err");
+    return;
+  }
+  renderNowState();
+  const button = document.getElementById("extraFind");
+  button.disabled = true;
+  setStatus("Looking for a place for it…", "busy");
+  try {
+    const { names, colors } = planTrucks(run);
+    const prepared = INS.prepare({
+      solution: run.solution,
+      vehicleInfo: run.vehicleInfo,
+      truckNames: names,
+      op: job,
+      now: extraNow(),
+      depot,
+      times: lastTimes || readTimes(),
+      costs: lastCosts || readCosts(),
+      limits: lastLimits || readLimits(),
+      fleet: lastFleet || fleet,
+      stock: lastStock || stock,
+      operations,
+    });
+    let result = { options: [], fitting: 0, considered: 0, all: 0 };
+    if (!prepared.problems.length) {
+      const matrices = {};
+      for (const [profile, points] of Object.entries(prepared.points)) {
+        matrices[profile] = await osrmTable(profile, points);
+      }
+      result = INS.evaluate(prepared, matrices);
+    }
+    extraAnswer = { prepared, result, colors };
+    extraShown = 0;
+    renderExtraAnswer();
+    if (result.options.length) {
+      await showExtraOption(0);
+      setStatus(`${result.fitting} truck${result.fitting === 1 ? "" : "s"} could still take it.`, "ok");
+    } else {
+      setStatus(prepared.problems[0] || "Nowhere to put it today.", "err");
+    }
+  } catch (err) {
+    extraAnswer = null;
+    document.getElementById("extraResult").innerHTML = extraNotice(
+      `Cannot reach the routing server: ${err.message}`, "err");
+    setStatus(`Routing error: ${err.message}`, "err");
+  } finally {
+    button.disabled = false;
+  }
+}
+
+// An answer belongs to the plan it was computed from: as soon as that
+// plan is gone, so is the answer.
+function clearExtra() {
+  extraAnswer = null;
+  extraShown = 0;
+  if (extraJobMarker) { markerLayer.removeLayer(extraJobMarker); extraJobMarker = null; }
+  document.getElementById("extraResult").innerHTML = "";
+}
+
+for (const el of [extraLat, extraLng]) el.oninput = () => { clearExtra(); placeExtraMarker(); };
+extraSizeSel.onchange = clearExtra;
+document.getElementById("extraFind").onclick = findExtra;
+document.getElementById("nowLive").onclick = () => {
+  const d = new Date();
+  nowClock.value = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  renderNowState();
+};
+nowClock.oninput = renderNowState;
+
+// ---------- bootstrap ----------
 // The early starts and the prices come first: both are read by the
 // problems box and by the cost hints (an early start priced at nothing
 // is one of the things warned about), and both are lists built from the
