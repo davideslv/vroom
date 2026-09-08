@@ -71,10 +71,10 @@ function plan() {
       distance: 35000,
       steps: [
         step("start", P.company, 8 * 3600, one("f6", 0)),
-        step("pickup", P.A, 8 * 3600 + 600, one("f6", 1), { id: 11, service: 600, description: "op 1: pick up full 6 m³" }),
-        step("pickup", P.B, 8 * 3600 + 1800, one("f6", 2), { id: 21, service: 600, description: "op 2: pick up full 6 m³" }),
-        step("delivery", P.company, 8 * 3600 + 3300, one("f6", 1), { id: 12, setup: 300, service: 300, description: "op 1: empty full 6 m³ at company" }),
-        step("delivery", P.company, 8 * 3600 + 3900, one("f6", 0), { id: 22, service: 300, description: "op 2: empty full 6 m³ at company" }),
+        step("pickup", P.A, 8 * 3600 + 600, one("f6", 1), { id: 11, service: 600, description: "op A: recolher cheio de 6 m³" }),
+        step("pickup", P.B, 8 * 3600 + 1800, one("f6", 2), { id: 21, service: 600, description: "op B: recolher cheio de 6 m³" }),
+        step("delivery", P.company, 8 * 3600 + 3300, one("f6", 1), { id: 12, setup: 300, service: 300, description: "op A: despejar cheio de 6 m³ na empresa" }),
+        step("delivery", P.company, 8 * 3600 + 3900, one("f6", 0), { id: 22, service: 300, description: "op B: despejar cheio de 6 m³ na empresa" }),
         step("end", P.company, 8 * 3600 + 4200, one("f6", 0)),
       ],
     }],
@@ -166,7 +166,7 @@ run("a gap the truck is already driving is closed", {
     const own = r.options.filter((o) => !o.spare);
     return route && route.frozen === 2 && own.every((o) => {
       const line = o.timeline.findIndex((t) => t.kind === "new" && /entregar vazio/.test(t.text));
-      const b = o.timeline.findIndex((t) => /op 2: recolher cheio/.test(t.text));
+      const b = o.timeline.findIndex((t) => /op B: recolher cheio/.test(t.text));
       return line > b;
     });
   },

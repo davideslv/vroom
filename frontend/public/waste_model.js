@@ -944,6 +944,31 @@
       return Math.floor(stepId / 10);
     }
 
+    // What an operation is called on screen: A, B, ... Z, AA, AB, the
+    // way a spreadsheet names its columns. The id stays the integer the
+    // solver needs (see buildRequest, where the step ids are id * 10),
+    // and this is the only thing the planner ever sees of it.
+    //
+    // Letters rather than numbers because a number beside a route read
+    // off a clock looks like a position in it, and it is not: what gets
+    // done when is the plan's to decide and the route cards' to say.
+    // Two letters cover 702 operations, which is more than a day has
+    // and, just as much to the point, all the pin's badge will hold.
+    //
+    // Anything that is not a positive integer comes back as it went in:
+    // the extra job wears a "+" in the same badge.
+    function labelOf(id) {
+      let n = Number(id);
+      if (!Number.isInteger(n) || n < 1) return String(id);
+      let out = "";
+      while (n > 0) {
+        const rest = (n - 1) % 26;
+        out = String.fromCharCode(65 + rest) + out;
+        n = (n - rest - 1) / 26;
+      }
+      return out;
+    }
+
     function describe(op) {
       const t = OPERATION_TYPES[op.type];
       return t.needsSize ? `${t.short} ${op.size} m³` : t.short;
@@ -1158,7 +1183,7 @@
         const base = op.id * 10;
         const priority = Math.max(0, Math.min(100, Number(op.priority) || 0));
         const size = op.size;
-        const tag = `op ${op.id}`;
+        const tag = `op ${labelOf(op.id)}`;
         // An operation inside a zone requires that zone's skill, which
         // only the vehicles allowed in carry: the ones that cannot get
         // there are excluded outright rather than merely discouraged by
@@ -1331,7 +1356,7 @@
           }
         }
         if (!able.length) {
-          error(`Operação ${op.id}: nenhum camião da frota consegue transportar um contentor de ${op.size} m³.`);
+          error(`Operação ${labelOf(op.id)}: nenhum camião da frota consegue transportar um contentor de ${op.size} m³.`);
           continue;
         }
         const here = zonesAt(op.lng, op.lat);
@@ -1339,10 +1364,10 @@
         const blocked = blockedProfilesAt(op.lng, op.lat);
         const names = here.map((z) => `"${z.name}"`).join(", ");
         if (able.every((profile) => blocked.includes(profile))) {
-          error(`A operação ${op.id} fica dentro da zona interdita ${names} e nenhum camião ` +
+          error(`A operação ${labelOf(op.id)} fica dentro da zona interdita ${names} e nenhum camião ` +
                 `da frota capaz de transportar um contentor de ${op.size} m³ pode lá entrar.`);
         } else if (able.some((profile) => blocked.includes(profile))) {
-          warning(`A operação ${op.id} fica dentro da zona interdita ${names}: ` +
+          warning(`A operação ${labelOf(op.id)} fica dentro da zona interdita ${names}: ` +
                   `${describeProfiles(blocked)} não a podem servir, por isso fica para os restantes.`);
         }
       }
@@ -1614,7 +1639,7 @@
       moneyForAfternoon, solverAfternoonFixed, scenarioTimeWeight,
       defaultLimits, configKeyOf,
       profileFor, pointInZone, zonesAt, blockedProfilesAt, describeProfiles,
-      opIdOfStep, describe, buildRequest, validate,
+      opIdOfStep, labelOf, describe, buildRequest, validate,
       CSV_COLUMNS, parseOperationsCsv, operationsToCsv,
     };
   }

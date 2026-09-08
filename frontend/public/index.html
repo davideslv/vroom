@@ -726,7 +726,18 @@ let M = WasteModel.create(WASTE_RULES, WASTE_DEFAULTS, zoneConfig);
 // The company is fixed on the map: it only moves from the Config tab.
 let depot = { ...M.COMPANY };
 let operations = [];       // [{id, lat, lng, type, size, priority}]
-let nextOpId = 1;
+// Operations are named from their id (M.labelOf: 1 is A, 2 is B, 27 is
+// AA), and a new one takes the lowest name nobody is using rather than
+// the next one ever handed out. Delete B of A, B, C and the next
+// operation added is B again: no gaps to explain, and — the part that
+// matters more — no existing operation is ever renamed, so the pin
+// being looked at does not become something else while it is looked at.
+function freeOpId() {
+  const taken = new Set(operations.map((op) => op.id));
+  let id = 1;
+  while (taken.has(id)) id++;
+  return id;
+}
 let fleet = M.defaultFleet();
 let chicos = M.defaultChicos();
 // Containers of each size in the yard, {size: count} with null for a
@@ -840,7 +851,7 @@ function opPin(op, color) {
     glyphGroup(st.glyph, 6, 6, 1, 1.7) +
     `<circle cx="26" cy="7.5" r="7" fill="#fff" stroke="${color}" stroke-width="1.6"/>` +
     `<text x="26" y="7.5" dy="3.1" text-anchor="middle" font-size="8.5" font-weight="700"` +
-    ` fill="#111725" font-family="ui-sans-serif, system-ui, sans-serif">${op.id}</text>`;
+    ` fill="#111725" font-family="ui-sans-serif, system-ui, sans-serif">${M.labelOf(op.id)}</text>`;
   return pinIcon(body, PIN_BOX, `pin${dim ? " dim" : ""}`);
 }
 
@@ -1343,7 +1354,7 @@ if (ZONES_ENABLED) {
 // the panel — and both end up here.
 function addOperation(lat, lng) {
   const op = {
-    id: nextOpId++,
+    id: freeOpId(),
     lat,
     lng,
     type: opTypeSel.value,
@@ -1351,6 +1362,13 @@ function addOperation(lat, lng) {
     priority: 0,
   };
   operations.push(op);
+  // Kept in the order of the names, which after a name has been freed
+  // and handed out again is not the order they were added in. The
+  // list is read by looking a name up in it, so the list is where the
+  // names run in order; where an operation was typed is nobody's
+  // question. Everything else reads this array in whatever order it
+  // is in, so sorting it here is the whole of it.
+  operations.sort((a, b) => a.id - b.id);
   clearPlan();
   renderPoints();
   return op;
@@ -1391,7 +1409,7 @@ function addOperationFromInputs() {
   newLngInput.value = "";
   newLatInput.focus();
   map.panTo([lat, lng]);
-  setStatus(`Operação #${op.id} acrescentada em ${lat.toFixed(5)}, ${lng.toFixed(5)}.`);
+  setStatus(`Operação ${M.labelOf(op.id)} acrescentada em ${lat.toFixed(5)}, ${lng.toFixed(5)}.`);
 }
 
 document.getElementById("addOp").onclick = addOperationFromInputs;
@@ -1520,8 +1538,10 @@ function plural(n, one, many) {
 // the numbering starts again, so #3 on the map is the third operation
 // of the file and a row can be found in the spreadsheet it came from.
 function applyCsv(read) {
-  nextOpId = 1;
-  operations = read.map((op) => Object.assign({ id: nextOpId++ }, op));
+  // The file is the day, so the names start again from A and a row can
+  // be found in the spreadsheet it came from by counting down it.
+  let id = 1;
+  operations = read.map((op) => Object.assign({ id: id++ }, op));
   clearPlan();
   renderPoints();
   const bounds = L.latLngBounds(operations.map((op) => [op.lat, op.lng]));
@@ -1624,7 +1644,7 @@ function renderPoints(unassignedOps = new Set(), opColor = {}, partialOps = new 
         : `prioridade ${op.priority}`;
     const marker = L.marker([op.lat, op.lng], { icon: opPin(op, color), riseOnHover: true })
       .addTo(markerLayer)
-      .bindTooltip(`<b>#${op.id}</b> ${esc(M.describe(op))}` +
+      .bindTooltip(`<b>${M.labelOf(op.id)}</b> ${esc(M.describe(op))}` +
         `<span class="sub">${state}</span>`,
         { direction: "top" });
     marker.on("mouseover", () => setHot(op.id, true));
@@ -1665,7 +1685,7 @@ function opRow(op, color, unassigned, partial) {
   mark.innerHTML = chip(OP_STYLE[op.type], unassigned ? UNASSIGNED_COLOR : null);
   const id = document.createElement("span");
   id.className = "id";
-  id.textContent = partial ? `#${op.id}*` : `#${op.id}`;
+  id.textContent = partial ? `${M.labelOf(op.id)}*` : M.labelOf(op.id);
   if (partial) id.title = "feita em parte: alguns dos seus movimentos ficam para outro dia";
 
   const type = document.createElement("select");
@@ -2350,9 +2370,11 @@ function showSolution(run) {
       <ol>${items.join("")}</ol></details>`);
   });
 
-  const unassignedTitle = unassignedOps.size ? ` title="operações ${[...unassignedOps].sort((a, b) => a - b).join(", ")}"` : "";
+  // Named in the order the names run, which is the order the list is in.
+  const named = (ids) => [...ids].sort((a, b) => a - b).map(M.labelOf).join(", ");
+  const unassignedTitle = unassignedOps.size ? ` title="operações ${named(unassignedOps)}"` : "";
   const partialNote = partialOps.size
-    ? `<span class="v muted" style="display:inline;font-size:12px" title="operações ${[...partialOps].sort((a, b) => a - b).join(", ")}: feitas em parte"> +${partialOps.size} em parte</span>`
+    ? `<span class="v muted" style="display:inline;font-size:12px" title="operações ${named(partialOps)}: feitas em parte"> +${partialOps.size} em parte</span>`
     : "";
   document.getElementById("summary").innerHTML = `
     <div class="stats">
@@ -2660,7 +2682,7 @@ document.getElementById("backToManage").onclick = () => showStep("manage");
 // Clears the day, not the configuration: the company stays where Config
 // put it.
 document.getElementById("clear").onclick = () => {
-  operations = []; nextOpId = 1;
+  operations = [];
   hideCsvReport();
   clearPlan();
   map.setView([depot.lat, depot.lng], 13);
