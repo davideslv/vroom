@@ -680,7 +680,6 @@
       <div class="bar" id="actions-manage">
         <button id="solve" class="primary">Encontrar plano</button>
         <button id="clear">Limpar</button>
-        <button id="showSolutions" hidden>Ver soluções</button>
       </div>
       <div class="bar" id="actions-solutions" hidden>
         <button id="backToManage">Voltar à gestão de operações</button>
@@ -1102,7 +1101,9 @@ async function saveZones() {
   rebuildModel();
   renderZones();
   renderProblems();
-  routeLayer.clearLayers();
+  // The zones decide which routing profile a vehicle uses, so a plan
+  // made under the old ones drove roads that are now closed.
+  clearPlan();
   if (!ZONES_ENABLED) return;
   try {
     const res = await fetch("/zones.json", {
@@ -1714,15 +1715,10 @@ function showStep(name) {
 function updateSolveButton() {
   const total = M.TYPE_ORDER.reduce((n, t) => n + (fleet[t] || 0), 0);
   document.getElementById("solve").disabled = operations.length === 0 || total === 0;
-  // The way back to a plan that is still good. It is only offered
-  // while there is one: clearPlan takes it away, which is what
-  // happens the moment the day, the fleet or the prices change.
-  const planned = scenarioRuns.some((r) => r.stats);
-  document.getElementById("showSolutions").hidden = !planned;
   document.getElementById("manageCount").textContent = operations.length
     ? plural(operations.length, "operação", "operações")
     : "";
-  document.getElementById("solutionCount").textContent = planned
+  document.getElementById("solutionCount").textContent = havePlan()
     ? plural(operations.length, "operação", "operações")
     : "";
 }
@@ -1770,7 +1766,11 @@ function renderFleet() {
     countLabel.textContent = "camiões";
     const count = document.createElement("input");
     count.type = "number"; count.min = "0"; count.max = "20"; count.value = fleet[type];
-    count.oninput = () => { fleet[type] = Math.max(0, Math.floor(Number(count.value) || 0)); renderProblems(); updateSolveButton(); renderChicoLabels(); };
+    count.oninput = () => {
+      fleet[type] = Math.max(0, Math.floor(Number(count.value) || 0));
+      clearPlan();
+      renderProblems(); updateSolveButton(); renderChicoLabels();
+    };
 
     li.append(name, countLabel, count);
     list.appendChild(li);
@@ -1793,7 +1793,11 @@ function renderFleet() {
       const trucks = fleet[c.attachesTo] || 0;
       countLabel.textContent = chicos[key] > trucks ? `chicos (só ${trucks} ${trucks === 1 ? "camião" : "camiões"})` : "chicos";
     };
-    count.oninput = () => { chicos[key] = Math.max(0, Math.floor(Number(count.value) || 0)); refreshLabel(); };
+    count.oninput = () => {
+      chicos[key] = Math.max(0, Math.floor(Number(count.value) || 0));
+      clearPlan();
+      refreshLabel();
+    };
     refreshLabel();
     li.dataset.chico = key;
     li._refresh = refreshLabel;
@@ -1830,6 +1834,7 @@ function renderContainers() {
       stock[size] = count.value.trim() === ""
         ? null
         : Math.max(0, Math.floor(Number(count.value) || 0));
+      clearPlan();
       refreshLabel();
       renderProblems();
     };
@@ -2514,6 +2519,13 @@ async function solveRequest(request) {
   return body;
 }
 
+// Is there a plan to show? A plan is thrown away the moment anything
+// it was built from moves (see clearPlan and its callers), so one
+// still being here is the whole of "nothing has changed since".
+function havePlan() {
+  return scenarioRuns.some((r) => r.stats);
+}
+
 // The day, planned once per scenario. The requests are built together,
 // from one reading of the tabs, so the plans differ by the weight on
 // driving time and by nothing else. They are then solved one after the
@@ -2522,6 +2534,12 @@ async function solveRequest(request) {
 // it arrives anyway, so the first one is on the map about as soon as
 // the single plan of before would have been.
 document.getElementById("solve").onclick = async () => {
+  // The one button of this step, and it asks one question: show me the
+  // plan for this day. When the plan already on hand is still the plan
+  // for this day, that is the answer, and solving it again would cost
+  // a second and arrive at the same place.
+  if (havePlan()) return showStep("solutions");
+
   const errors = renderProblems();
   if (errors.length) {
     setStatus("Corrija os problemas acima antes de planear.", "err");
@@ -2604,7 +2622,6 @@ document.getElementById("solve").onclick = async () => {
   }
 };
 
-document.getElementById("showSolutions").onclick = () => showStep("solutions");
 // Going back changes nothing: the plan, its routes on the map and the
 // scenario it was read under are all still there to come back to, and
 // only an edit to the day itself throws them away.
@@ -2627,8 +2644,13 @@ fetch("/api/health")
     : setStatus(`O otimizador respondeu ${r.status}: ${BackendMessages.status(r.status)}.`, "err")))
   .catch(() => setStatus("Otimizador inacessível. Execute o frontend/setup.sh.", "err"));
 
+// The working day, and how long a stop takes: both are read into every
+// request, so a plan made before they moved is not a plan for this day.
 for (const id of ["dayStart", "dayEnd", "lunchStart", "lunchEnd"]) {
-  document.getElementById(id).oninput = renderProblems;
+  document.getElementById(id).oninput = () => { clearPlan(); renderProblems(); };
+}
+for (const id of ["clientService", "companySetup", "companyService"]) {
+  document.getElementById(id).oninput = clearPlan;
 }
 
 // ---------- config: starting values from docs/waste_defaults.json ----------
