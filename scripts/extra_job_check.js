@@ -71,10 +71,10 @@ function plan() {
       distance: 35000,
       steps: [
         step("start", P.company, 8 * 3600, one("f6", 0)),
-        step("pickup", P.A, 8 * 3600 + 600, one("f6", 1), { id: 11, service: 600, description: "op 1: pick up full 6 m³" }),
-        step("pickup", P.B, 8 * 3600 + 1800, one("f6", 2), { id: 21, service: 600, description: "op 2: pick up full 6 m³" }),
-        step("delivery", P.company, 8 * 3600 + 3300, one("f6", 1), { id: 12, setup: 300, service: 300, description: "op 1: empty full 6 m³ at company" }),
-        step("delivery", P.company, 8 * 3600 + 3900, one("f6", 0), { id: 22, service: 300, description: "op 2: empty full 6 m³ at company" }),
+        step("pickup", P.A, 8 * 3600 + 600, one("f6", 1), { id: 11, service: 600, description: "op A: recolher cheio de 6 m³" }),
+        step("pickup", P.B, 8 * 3600 + 1800, one("f6", 2), { id: 21, service: 600, description: "op B: recolher cheio de 6 m³" }),
+        step("delivery", P.company, 8 * 3600 + 3300, one("f6", 1), { id: 12, setup: 300, service: 300, description: "op A: despejar cheio de 6 m³ na empresa" }),
+        step("delivery", P.company, 8 * 3600 + 3900, one("f6", 0), { id: 22, service: 300, description: "op B: despejar cheio de 6 m³ na empresa" }),
         step("end", P.company, 8 * 3600 + 4200, one("f6", 0)),
       ],
     }],
@@ -165,8 +165,8 @@ run("a gap the truck is already driving is closed", {
     const route = p.routes.find((x) => !x.spare);
     const own = r.options.filter((o) => !o.spare);
     return route && route.frozen === 2 && own.every((o) => {
-      const line = o.timeline.findIndex((t) => t.kind === "new" && /deliver empty/.test(t.text));
-      const b = o.timeline.findIndex((t) => /op 2: pick up full/.test(t.text));
+      const line = o.timeline.findIndex((t) => t.kind === "new" && /entregar vazio/.test(t.text));
+      const b = o.timeline.findIndex((t) => /op B: recolher cheio/.test(t.text));
       return line > b;
     });
   },
@@ -177,7 +177,7 @@ run("a gap the truck is already driving is closed", {
 run("an empty yard is said and not enforced", {
   op: deliver, now: 8 * 3600, stock: { 6: 1 },
   operations: [{ id: 1, type: "exchange", size: 6 }],
-  expect: (r, p) => p.notes.some((n) => /container/.test(n)) && r.options.length > 0,
+  expect: (r, p) => p.notes.some((n) => /contentor/.test(n)) && r.options.length > 0,
 });
 
 console.log(process.exitCode ? "\nsomething is wrong" : "\nall checks passed");

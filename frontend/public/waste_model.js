@@ -142,10 +142,10 @@
   // container of that size. Picking up a full container does not, it
   // brings one in.
   const OPERATION_TYPES = {
-    deliver_empty: { label: "Deliver empty container", short: "deliver empty", needsSize: true, takesContainerOut: true },
-    pickup_full: { label: "Pick up full container", short: "pick up full", needsSize: true, takesContainerOut: false },
-    exchange: { label: "Exchange empty for full", short: "exchange", needsSize: true, takesContainerOut: true },
-    sell_materials: { label: "Sell materials (full container)", short: "materials", needsSize: true, takesContainerOut: true },
+    deliver_empty: { label: "Entregar contentor vazio", short: "entregar vazio", needsSize: true, takesContainerOut: true },
+    pickup_full: { label: "Recolher contentor cheio", short: "recolher cheio", needsSize: true, takesContainerOut: false },
+    exchange: { label: "Trocar vazio por cheio", short: "troca", needsSize: true, takesContainerOut: true },
+    sell_materials: { label: "Venda de materiais (contentor cheio)", short: "materiais", needsSize: true, takesContainerOut: true },
   };
 
   // ---------- the cost model ----------
@@ -233,21 +233,21 @@
   const BUILTIN_SCENARIOS = [
     {
       key: "cheapest",
-      label: "Cheapest",
+      label: "Mais barato",
       time_weight: 1,
-      hint: "What the day costs the company: the kilometres at the price of the truck that drives them. The cheap small trucks carry little, so this is also the most driving.",
+      hint: "O que o dia custa à empresa: os quilómetros ao preço do camião que os faz. Os camiões pequenos são baratos mas levam pouco, por isso esta é também a opção com mais estrada.",
     },
     {
       key: "balanced",
-      label: "Balanced",
+      label: "Equilibrado",
       time_weight: 30,
-      hint: "An hour of driving weighs about what the kilometres it covers do. Middle ground: less road than the cheapest day, less money than the shortest one.",
+      hint: "Uma hora ao volante pesa aproximadamente o mesmo que os quilómetros que percorre. Meio-termo: menos estrada do que o dia mais barato, menos dinheiro do que o mais curto.",
     },
     {
       key: "least-driving",
-      label: "Least driving",
+      label: "Menos condução",
       time_weight: 300,
-      hint: "The fewest hours on the road, and the fewest kilometres with them: bigger trucks, fewer trips, more money. It is driving added up over the fleet, not when the last truck gets home.",
+      hint: "O menor número de horas na estrada, e com elas os menos quilómetros: camiões maiores, menos viagens, mais dinheiro. É a condução somada em toda a frota, não a hora a que o último camião chega.",
     },
   ];
 
@@ -294,7 +294,7 @@
   // Fallback when no zone file is given: a single unrestricted profile,
   // which is exactly the behaviour before no-go zones existed.
   const BUILTIN_ZONES = {
-    profiles: { car: { description: "default profile: no area restriction" } },
+    profiles: { car: { description: "perfil por omissão: sem restrição de áreas" } },
     vehicle_profiles: { rules: [], default: "car" },
     zones: [],
   };
@@ -332,7 +332,7 @@
 
   function create(rules, defaults, zoneConfig) {
     if (!rules || !rules.trucks || !rules.sizes) {
-      throw new Error("waste rules missing: expected {sizes, trucks}");
+      throw new Error("regras em falta: esperado {sizes, trucks}");
     }
     const D = defaults || {};
     const day = { ...BUILTIN_DEFAULTS.working_day, ...(D.working_day || {}) };
@@ -439,7 +439,7 @@
       };
     }
     if (!Object.keys(PROFILES).length) {
-      throw new Error("no_go_zones.json: at least one routing profile is needed");
+      throw new Error("no_go_zones.json: é preciso pelo menos um perfil de encaminhamento");
     }
 
     const PROFILE_RULES = ((Z.vehicle_profiles || {}).rules || []).filter((r) => r && r.match);
@@ -543,7 +543,7 @@
     const site = D.company || rules.company || BUILTIN_DEFAULTS.company;
     const COMPANY = { lat: Number(site.lat), lng: Number(site.lng) };
     if (!isFinite(COMPANY.lat) || !isFinite(COMPANY.lng)) {
-      throw new Error("waste defaults: company must have numeric lat and lng");
+      throw new Error("valores por omissão: a empresa tem de ter lat e lng numéricos");
     }
 
     function zeros() {
@@ -904,10 +904,10 @@
     // and being a route start, the lunch end is when loading may begin.
     function shiftsOf(times) {
       const { dayStart, dayEnd, lunchStart, lunchEnd } = times;
-      if (!(lunchEnd > lunchStart)) return [{ key: "day", label: "day", start: dayStart, end: dayEnd }];
+      if (!(lunchEnd > lunchStart)) return [{ key: "day", label: "dia", start: dayStart, end: dayEnd }];
       const shifts = [];
-      if (lunchStart > dayStart) shifts.push({ key: "morning", label: "morning", start: dayStart, end: lunchStart });
-      if (dayEnd > lunchEnd) shifts.push({ key: "afternoon", label: "afternoon", start: lunchEnd, end: dayEnd });
+      if (lunchStart > dayStart) shifts.push({ key: "morning", label: "manhã", start: dayStart, end: lunchStart });
+      if (dayEnd > lunchEnd) shifts.push({ key: "afternoon", label: "tarde", start: lunchEnd, end: dayEnd });
       return shifts;
     }
 
@@ -942,6 +942,31 @@
     // can be mapped back: operation k uses ids 10k+1 .. 10k+4.
     function opIdOfStep(stepId) {
       return Math.floor(stepId / 10);
+    }
+
+    // What an operation is called on screen: A, B, ... Z, AA, AB, the
+    // way a spreadsheet names its columns. The id stays the integer the
+    // solver needs (see buildRequest, where the step ids are id * 10),
+    // and this is the only thing the planner ever sees of it.
+    //
+    // Letters rather than numbers because a number beside a route read
+    // off a clock looks like a position in it, and it is not: what gets
+    // done when is the plan's to decide and the route cards' to say.
+    // Two letters cover 702 operations, which is more than a day has
+    // and, just as much to the point, all the pin's badge will hold.
+    //
+    // Anything that is not a positive integer comes back as it went in:
+    // the extra job wears a "+" in the same badge.
+    function labelOf(id) {
+      let n = Number(id);
+      if (!Number.isInteger(n) || n < 1) return String(id);
+      let out = "";
+      while (n > 0) {
+        const rest = (n - 1) % 26;
+        out = String.fromCharCode(65 + rest) + out;
+        n = (n - rest - 1) / 26;
+      }
+      return out;
     }
 
     function describe(op) {
@@ -1039,7 +1064,7 @@
         if (fixed > 0) vehicleCosts.fixed = fixed;
         const parts = [description];
         if (shifts.length > 1) parts.push(shift.label);
-        if (early > 0) parts.push(`from ${clockOf(shift.start - early)}`);
+        if (early > 0) parts.push(`a partir das ${clockOf(shift.start - early)}`);
         const v = {
           id: vId++,
           description: parts.join(", "),
@@ -1098,7 +1123,7 @@
           let groups;
           if (anyChico || earlyForShift.length) {
             const suffix = shifts.length > 1 ? `, ${shift.label}` : "";
-            vehicleGroups.push({ id: gId, max_vehicles: n, description: `${label} trucks${suffix}` });
+            vehicleGroups.push({ id: gId, max_vehicles: n, description: `camiões ${label}${suffix}` });
             groups = [gId++];
           }
           const extra = groups ? { groups } : {};
@@ -1138,7 +1163,7 @@
         taskGroups.push({
           id: tgId++,
           max_tasks: available,
-          description: `${size} m³ containers in the yard`,
+          description: `contentores de ${size} m³ no estaleiro`,
         });
       }
 
@@ -1158,7 +1183,7 @@
         const base = op.id * 10;
         const priority = Math.max(0, Math.min(100, Number(op.priority) || 0));
         const size = op.size;
-        const tag = `op ${op.id}`;
+        const tag = `op ${labelOf(op.id)}`;
         // An operation inside a zone requires that zone's skill, which
         // only the vehicles allowed in carry: the ones that cannot get
         // there are excluded outright rather than merely discouraged by
@@ -1181,27 +1206,27 @@
           case "deliver_empty":
             push({
               amount: oneHot(`e${size}`),
-              pickup: atCompany(base + 1, `${tag}: load empty ${size} m³ at company`),
-              delivery: atClient(base + 2, op, `${tag}: deliver empty ${size} m³`),
+              pickup: atCompany(base + 1, `${tag}: carregar vazio de ${size} m³ na empresa`),
+              delivery: atClient(base + 2, op, `${tag}: entregar vazio de ${size} m³`),
             }, true);
             break;
           case "pickup_full":
             push({
               amount: oneHot(`f${size}`),
-              pickup: atClient(base + 1, op, `${tag}: pick up full ${size} m³`),
-              delivery: atCompany(base + 2, `${tag}: empty full ${size} m³ at company`),
+              pickup: atClient(base + 1, op, `${tag}: recolher cheio de ${size} m³`),
+              delivery: atCompany(base + 2, `${tag}: despejar cheio de ${size} m³ na empresa`),
             });
             break;
           case "exchange":
             push({
               amount: oneHot(`e${size}`),
-              pickup: atCompany(base + 1, `${tag}: load empty ${size} m³ at company`),
-              delivery: atClient(base + 2, op, `${tag}: leave empty ${size} m³ (exchange)`),
+              pickup: atCompany(base + 1, `${tag}: carregar vazio de ${size} m³ na empresa`),
+              delivery: atClient(base + 2, op, `${tag}: deixar vazio de ${size} m³ (troca)`),
             }, true);
             push({
               amount: oneHot(`f${size}`),
-              pickup: atClient(base + 3, op, `${tag}: pick up full ${size} m³ (exchange)`),
-              delivery: atCompany(base + 4, `${tag}: empty full ${size} m³ at company`),
+              pickup: atClient(base + 3, op, `${tag}: recolher cheio de ${size} m³ (troca)`),
+              delivery: atCompany(base + 4, `${tag}: despejar cheio de ${size} m³ na empresa`),
             });
             break;
           case "sell_materials":
@@ -1209,12 +1234,12 @@
             // at the client: a full container for the loading rules.
             push({
               amount: oneHot(`f${size}`),
-              pickup: atCompany(base + 1, `${tag}: load materials (${size} m³ container) at company`),
-              delivery: atClient(base + 2, op, `${tag}: deliver materials (${size} m³ container)`),
+              pickup: atCompany(base + 1, `${tag}: carregar materiais (contentor de ${size} m³) na empresa`),
+              delivery: atClient(base + 2, op, `${tag}: entregar materiais (contentor de ${size} m³)`),
             }, true);
             break;
           default:
-            throw new Error(`unknown operation type ${op.type}`);
+            throw new Error(`tipo de operação desconhecido: ${op.type}`);
         }
       }
 
@@ -1252,15 +1277,15 @@
       const warning = (text) => found.push({ level: "warning", text });
 
       if (times.dayEnd <= times.dayStart) {
-        error("Working day: the end must be after the start.");
+        error("Dia de trabalho: o fim tem de ser depois do início.");
       }
       if (times.lunchEnd < times.lunchStart) {
-        error("Lunch: the end must not be before the start.");
+        error("Almoço: o fim não pode ser antes do início.");
       } else if (times.lunchEnd > times.lunchStart &&
                  (times.lunchStart < times.dayStart || times.lunchEnd > times.dayEnd)) {
-        error("Lunch: must be inside the working day.");
+        error("Almoço: tem de estar dentro do dia de trabalho.");
       } else if (times.dayEnd > times.dayStart && !shiftsOf(times).length) {
-        error("Lunch: it covers the whole working day, so no truck could go out.");
+        error("Almoço: ocupa todo o dia de trabalho, por isso nenhum camião poderia sair.");
       }
       // Only the types with trucks today can start early, so only they
       // are worth complaining about.
@@ -1271,14 +1296,14 @@
         for (const type of earlyTypes) {
           const most = earlyStartMaxOf(times, type);
           if (earliest && earliest.start - most < 0) {
-            error(`Starting early: ${TRUCK_TYPES[type].label.toLowerCase()} trucks would be ` +
-                  "on the road before midnight.");
+            error(`Saída antecipada: os camiões ${TRUCK_TYPES[type].label.toLowerCase()} estariam ` +
+                  "na estrada antes da meia-noite.");
           }
         }
         if (!(nonNegativeNumber(costs.early_start_per_hour, 0) > 0)) {
-          warning("Starting early costs nothing, so trucks may go out early with nothing " +
-                  "to gain by it. Price an hour of early start in the Costs tab, or set " +
-                  "the early start to 0 minutes in Config.");
+          warning("A saída antecipada não custa nada, por isso os camiões podem sair mais cedo " +
+                  "sem que daí venha proveito. Dê preço a uma hora de saída antecipada no separador " +
+                  "Custos, ou ponha a saída antecipada a 0 minutos na Configuração.");
         }
       }
       // The afternoon charge rides on the afternoon vehicles, so a day
@@ -1287,22 +1312,22 @@
       // and a price set here is quietly doing nothing.
       if (moneyForAfternoon(costs) > 0 &&
           !shiftsOf(times).some((s) => s.key === "afternoon")) {
-        warning("Working the afternoon is priced, but this day has no afternoon: the " +
-                "charge falls on trucks going out after lunch, and without a lunch the " +
-                "day is one shift. Set a lunch in Config, or price the afternoon at 0 " +
-                "in the Costs tab.");
+        warning("Trabalhar de tarde tem preço, mas este dia não tem tarde: o encargo recai " +
+                "sobre os camiões que saem depois do almoço, e sem almoço o dia é um turno " +
+                "só. Defina um almoço na Configuração, ou ponha o preço da tarde a 0 no " +
+                "separador Custos.");
       }
       const total = TYPE_ORDER.reduce((n, t) => n + (fleet[t] || 0), 0);
-      if (total === 0) error("The fleet is empty: set at least one truck in Config.");
+      if (total === 0) error("A frota está vazia: defina pelo menos um camião na Configuração.");
 
       // The company is the start, the end and every unloading stop of
       // every route, so a restricted profile whose depot is inside its
       // own no-go zone can do nothing sensible at all.
       if (depot) {
         for (const z of zonesAt(depot.lng, depot.lat)) {
-          error(`The company site is inside the no-go zone "${z.name}": ` +
-                `${describeProfiles(z.blockedProfiles)} could not leave it. ` +
-                "Move the company or the zone.");
+          error(`A sede da empresa fica dentro da zona interdita "${z.name}": ` +
+                `${describeProfiles(z.blockedProfiles)} não poderiam sair de lá. ` +
+                "Mova a empresa ou a zona.");
         }
       }
 
@@ -1314,9 +1339,9 @@
         if (available === null) continue;
         const needed = stockUsers(operations, size).length;
         if (needed <= available) continue;
-        warning(`${needed} operations need a ${size} m³ container from the yard ` +
-                `and only ${available} ${available === 1 ? "is" : "are"} in stock: ` +
-                `the solver will leave ${needed - available} of them for another day.`);
+        warning(`${needed} operações precisam de um contentor de ${size} m³ do estaleiro ` +
+                `e só há ${available} em stock: ` +
+                `o otimizador vai deixar ${needed - available} delas para outro dia.`);
       }
 
       for (const op of operations) {
@@ -1331,7 +1356,7 @@
           }
         }
         if (!able.length) {
-          error(`Operation ${op.id}: no truck in the fleet can carry a ${op.size} m³ container.`);
+          error(`Operação ${labelOf(op.id)}: nenhum camião da frota consegue transportar um contentor de ${op.size} m³.`);
           continue;
         }
         const here = zonesAt(op.lng, op.lat);
@@ -1339,11 +1364,11 @@
         const blocked = blockedProfilesAt(op.lng, op.lat);
         const names = here.map((z) => `"${z.name}"`).join(", ");
         if (able.every((profile) => blocked.includes(profile))) {
-          error(`Operation ${op.id} is inside the no-go zone ${names} and no truck ` +
-                `of the fleet that can carry a ${op.size} m³ container is allowed in.`);
+          error(`A operação ${labelOf(op.id)} fica dentro da zona interdita ${names} e nenhum camião ` +
+                `da frota capaz de transportar um contentor de ${op.size} m³ pode lá entrar.`);
         } else if (able.some((profile) => blocked.includes(profile))) {
-          warning(`Operation ${op.id} is inside the no-go zone ${names}: ` +
-                  `${describeProfiles(blocked)} cannot serve it, so it is left to the others.`);
+          warning(`A operação ${labelOf(op.id)} fica dentro da zona interdita ${names}: ` +
+                  `${describeProfiles(blocked)} não a podem servir, por isso fica para os restantes.`);
         }
       }
       return found;
@@ -1353,8 +1378,8 @@
     // descriptions come from no_go_zones.json.
     function describeProfiles(names) {
       const labels = names.map((n) => (PROFILES[n] ? PROFILES[n].description : n));
-      if (labels.length <= 1) return labels[0] || "no vehicle";
-      return `${labels.slice(0, -1).join(", ")} and ${labels[labels.length - 1]}`;
+      if (labels.length <= 1) return labels[0] || "nenhum veículo";
+      return `${labels.slice(0, -1).join(", ")} e ${labels[labels.length - 1]}`;
     }
 
     // ---------- the day's operations as a CSV ----------
@@ -1380,10 +1405,10 @@
       size: "size", container: "size", containersize: "size", volume: "size", m3: "size",
       priority: "priority", prio: "priority",
       // The Portuguese for the column names, which is what the office
-      // spreadsheets are written in. Only the headings: what an
-      // operation is called in a cell stays the planner's own wording,
-      // since guessing at that would be guessing at the business.
-      operacao: "type", tipo: "type",
+      // spreadsheets are written in. The English ones above stay
+      // readable so a file written before the planner spoke
+      // Portuguese still loads.
+      operacao: "type", tipo: "type", servico: "type",
       tamanho: "size", contentor: "size", dimensao: "size",
       prioridade: "priority",
     };
@@ -1403,12 +1428,23 @@
         for (const spelling of [key, t.short, t.label]) map[csvKey(spelling)] = key;
       }
       return Object.assign(map, {
+        // Portuguese, as an office list is written by hand. The
+        // planner's own wording ("entregar vazio", "troca", ...) is
+        // already in here through OPERATION_TYPES above.
+        entrega: "deliver_empty", entregar: "deliver_empty",
+        colocar: "deliver_empty", vazio: "deliver_empty",
+        recolha: "pickup_full", recolher: "pickup_full",
+        levantar: "pickup_full", retirar: "pickup_full", cheio: "pickup_full",
+        trocar: "exchange", substituir: "exchange", substituicao: "exchange",
+        material: "sell_materials", venda: "sell_materials", vender: "sell_materials",
+        // English, so a list written before the planner spoke
+        // Portuguese still reads.
         deliver: "deliver_empty", delivery: "deliver_empty", drop: "deliver_empty",
-        dropempty: "deliver_empty", empty: "deliver_empty",
+        dropempty: "deliver_empty", empty: "deliver_empty", deliverempty: "deliver_empty",
         pickup: "pickup_full", pick: "pickup_full", collect: "pickup_full",
-        collection: "pickup_full", full: "pickup_full",
-        swap: "exchange", change: "exchange",
-        material: "sell_materials", sell: "sell_materials",
+        collection: "pickup_full", full: "pickup_full", pickupfull: "pickup_full",
+        swap: "exchange", change: "exchange", exchange: "exchange",
+        sell: "sell_materials", materials: "sell_materials",
       });
     })();
 
@@ -1491,7 +1527,7 @@
       const rows = csvRows(body, csvDelimiter(body)).filter((r) =>
         r.cells.some((c) => c.trim() !== "") && !r.cells[0].trim().startsWith("#"));
       if (!rows.length) {
-        problems.push({ line: 0, text: "The file holds no rows." });
+        problems.push({ line: 0, text: "O ficheiro não tem linhas." });
         return { operations, problems, rows: 0 };
       }
 
@@ -1503,15 +1539,15 @@
       const missing = CSV_REQUIRED.filter((f) => !(f in column));
       if (missing.length) {
         problems.push({ line: rows[0].line, text:
-          `The first row must name the columns and this one has no ${missing.join(", ")}. ` +
-          `A header reads "${CSV_COLUMNS.join(",")}"; priority may be left out.` });
+          `A primeira linha tem de nomear as colunas e nesta faltam: ${missing.join(", ")}. ` +
+          `Um cabeçalho lê-se "${CSV_COLUMNS.join(",")}"; priority pode ser omitida.` });
         return { operations, problems, rows: 0 };
       }
 
       let data = rows.slice(1);
       if (data.length > CSV_MAX_ROWS) {
         problems.push({ line: data[CSV_MAX_ROWS].line, text:
-          `Only the first ${CSV_MAX_ROWS} rows were read, of ${data.length} in the file.` });
+          `Só foram lidas as primeiras ${CSV_MAX_ROWS} linhas, das ${data.length} do ficheiro.` });
         data = data.slice(0, CSV_MAX_ROWS);
       }
 
@@ -1522,18 +1558,21 @@
         const lat = csvNumber(cell("lat"));
         const lng = csvNumber(cell("lng"));
         if (!isFinite(lat) || !isFinite(lng)) {
-          drop(`lat and lng must be numbers, not "${cell("lat")}" and "${cell("lng")}".`);
+          drop(`lat e lng têm de ser números, e não "${cell("lat")}" e "${cell("lng")}".`);
           continue;
         }
         if (Math.abs(lat) > 90 || Math.abs(lng) > 180) {
-          drop(`lat must be -90..90 and lng -180..180, not ${lat} and ${lng}.`);
+          drop(`lat tem de estar entre -90 e 90 e lng entre -180 e 180, e não ${lat} e ${lng}.`);
           continue;
         }
 
         const type = CSV_TYPES[csvKey(cell("type"))];
         if (!type) {
-          drop(`"${cell("type")}" is not an operation. One of ` +
-               `${Object.keys(OPERATION_TYPES).join(", ")}.`);
+          // Both spellings, because both are accepted: the words the
+          // planner shows, and the keys a downloaded CSV is written in.
+          drop(`"${cell("type")}" não é uma operação. Uma de: ` +
+               `${Object.values(OPERATION_TYPES).map((t) => t.short).join(", ")} ` +
+               `(ou ${Object.keys(OPERATION_TYPES).join(", ")}).`);
           continue;
         }
 
@@ -1541,7 +1580,7 @@
         if (OPERATION_TYPES[type].needsSize) {
           size = csvNumber(cell("size"));
           if (!SIZES.includes(size)) {
-            drop(`"${cell("size")}" is not a container size. One of ${SIZES.join(", ")} m³.`);
+            drop(`"${cell("size")}" não é um tamanho de contentor. Um de ${SIZES.join(", ")} m³.`);
             continue;
           }
         }
@@ -1551,7 +1590,7 @@
         if (wanted !== "") {
           priority = csvNumber(wanted);
           if (!isFinite(priority) || priority < 0 || priority > 100 || priority % 1 !== 0) {
-            drop(`"${wanted}" is not a priority. A whole number 0..100, or nothing at all.`);
+            drop(`"${wanted}" não é uma prioridade. Um número inteiro de 0 a 100, ou nada.`);
             continue;
           }
         }
@@ -1577,10 +1616,10 @@
       }
       if (!(operations || []).length) {
         lines.push(
-          "# One line per operation. Replace the example below and delete these notes.",
-          `# lat and lng are degrees, as ${COMPANY.lat.toFixed(5)},${COMPANY.lng.toFixed(5)} — the company.`,
-          `# type is one of ${Object.keys(OPERATION_TYPES).join(", ")}; size is ${SIZES.join(", ")} (m3).`,
-          "# priority is 0..100, higher is dropped last, and may be left empty.",
+          "# Uma linha por operação. Substitua o exemplo abaixo e apague estas notas.",
+          `# lat e lng são graus, como ${COMPANY.lat.toFixed(5)},${COMPANY.lng.toFixed(5)} — a empresa.`,
+          `# type é um de ${Object.keys(OPERATION_TYPES).join(", ")}; size é ${SIZES.join(", ")} (m3).`,
+          "# priority vai de 0 a 100, quanto maior mais tarde é descartada, e pode ficar vazia.",
           `${COMPANY.lat.toFixed(6)},${COMPANY.lng.toFixed(6)},exchange,${SIZES.includes(6) ? 6 : SIZES[0]},50`);
       }
       return lines.join("\r\n") + "\r\n";
@@ -1600,7 +1639,7 @@
       moneyForAfternoon, solverAfternoonFixed, scenarioTimeWeight,
       defaultLimits, configKeyOf,
       profileFor, pointInZone, zonesAt, blockedProfilesAt, describeProfiles,
-      opIdOfStep, describe, buildRequest, validate,
+      opIdOfStep, labelOf, describe, buildRequest, validate,
       CSV_COLUMNS, parseOperationsCsv, operationsToCsv,
     };
   }

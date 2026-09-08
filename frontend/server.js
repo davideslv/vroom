@@ -55,11 +55,11 @@ const ZONES_FILE = path.join(DOCS_DIR, "no_go_zones.json");
 
 function serveConfig(res, file, globalName, asScript) {
   fs.readFile(file, "utf8", (err, data) => {
-    if (err) return sendJson(res, 500, { error: `cannot read ${file}: ${err.message}` });
+    if (err) return sendJson(res, 500, { error: `não foi possível ler ${file}: ${err.message}` });
     try {
       JSON.parse(data);
     } catch (e) {
-      return sendJson(res, 500, { error: `${file} is not valid JSON: ${e.message}` });
+      return sendJson(res, 500, { error: `${file} não é JSON válido: ${e.message}` });
     }
     if (asScript) {
       res.writeHead(200, { "Content-Type": MIME[".js"], "Cache-Control": "no-cache" });
@@ -114,7 +114,7 @@ function zonesHash(config, profile) {
 
 function readZones(cb) {
   fs.readFile(ZONES_FILE, "utf8", (err, data) => {
-    if (err) return cb(new Error(`cannot read ${ZONES_FILE}: ${err.message}`));
+    if (err) return cb(new Error(`não foi possível ler ${ZONES_FILE}: ${err.message}`));
     try {
       cb(null, JSON.parse(data));
     } catch (e) {
@@ -187,7 +187,7 @@ function saveZones(req, res) {
   req.on("data", (chunk) => {
     body += chunk;
     if (body.length > 2 * 1024 * 1024) {
-      sendJson(res, 413, { error: "zones payload too large" });
+      sendJson(res, 413, { error: "os dados das zonas são demasiado grandes" });
       req.destroy();
     }
   });
@@ -196,7 +196,7 @@ function saveZones(req, res) {
     try {
       incoming = JSON.parse(body);
     } catch (e) {
-      return sendJson(res, 400, { error: `invalid JSON: ${e.message}` });
+      return sendJson(res, 400, { error: `JSON inválido: ${e.message}` });
     }
     readZones((err, config) => {
       if (err) return sendJson(res, 500, { error: err.message });
@@ -208,7 +208,7 @@ function saveZones(req, res) {
       const defaultProfile = (config.vehicle_profiles || {}).default || "car";
       const list = Array.isArray(incoming) ? incoming : incoming.zones;
       if (!Array.isArray(list)) {
-        return sendJson(res, 400, { error: 'expected a JSON body of the form {"zones": [...]}' });
+        return sendJson(res, 400, { error: 'esperado um corpo JSON da forma {"zones": [...]}' });
       }
 
       const zones = [];
@@ -216,19 +216,19 @@ function saveZones(req, res) {
       for (const z of list) {
         const id = Number(z.id);
         if (!Number.isInteger(id) || id <= 0) {
-          return sendJson(res, 400, { error: `zone id must be a positive integer, got ${z.id}` });
+          return sendJson(res, 400, { error: `o id da zona tem de ser um inteiro positivo, e não ${z.id}` });
         }
-        if (seen.has(id)) return sendJson(res, 400, { error: `duplicate zone id ${id}` });
+        if (seen.has(id)) return sendJson(res, 400, { error: `id de zona repetido: ${id}` });
         seen.add(id);
 
         const ring = Array.isArray(z.polygon) ? z.polygon : [];
         if (ring.length < 3) {
-          return sendJson(res, 400, { error: `zone ${id}: a polygon needs at least three points` });
+          return sendJson(res, 400, { error: `zona ${id}: um polígono precisa de pelo menos três pontos` });
         }
         for (const p of ring) {
           if (!Array.isArray(p) || p.length !== 2 || !isFinite(p[0]) || !isFinite(p[1])) {
             return sendJson(res, 400, {
-              error: `zone ${id}: polygon points are [longitude, latitude] pairs`,
+              error: `zona ${id}: os pontos do polígono são pares [longitude, latitude]`,
             });
           }
         }
@@ -236,20 +236,20 @@ function saveZones(req, res) {
         const blocked = Array.isArray(z.blocked_profiles) ? z.blocked_profiles : [];
         for (const p of blocked) {
           if (!known.includes(p)) {
-            return sendJson(res, 400, { error: `zone ${id}: unknown routing profile ${p}` });
+            return sendJson(res, 400, { error: `zona ${id}: perfil de encaminhamento desconhecido: ${p}` });
           }
           if (p === defaultProfile) {
             return sendJson(res, 400, {
-              error: `zone ${id}: ${p} is the default routing profile, which is served by the ` +
-                "unrestricted routing data; give the vehicles that must avoid the area a " +
-                "profile of their own in no_go_zones.json",
+              error: `zona ${id}: ${p} é o perfil de encaminhamento por omissão, servido pelos ` +
+                "dados de encaminhamento sem restrições; dê aos veículos que têm de evitar a " +
+                "área um perfil próprio em no_go_zones.json",
             });
           }
         }
 
         zones.push({
           id,
-          name: String(z.name || `zone ${id}`),
+          name: String(z.name || `zona ${id}`),
           blocked_profiles: blocked,
           polygon: ring.map((p) => [Number(p[0]), Number(p[1])]),
         });
@@ -263,7 +263,7 @@ function saveZones(req, res) {
         fs.writeFileSync(tmp, `${JSON.stringify(config, null, 2)}\n`, "utf8");
         fs.renameSync(tmp, ZONES_FILE);
       } catch (e) {
-        return sendJson(res, 500, { error: `cannot write ${ZONES_FILE}: ${e.message}` });
+        return sendJson(res, 500, { error: `não foi possível escrever ${ZONES_FILE}: ${e.message}` });
       }
       sendJson(res, 200, { ok: true, zones: zones.length });
     });
@@ -306,7 +306,7 @@ function appendLog(text) {
 
 function startBuild(res) {
   if (build && build.running) {
-    return sendJson(res, 409, { error: "a build is already running" });
+    return sendJson(res, 409, { error: "já está a decorrer uma construção" });
   }
   build = {
     running: true,
@@ -328,7 +328,7 @@ function startBuild(res) {
       windowsHide: true,
     });
   } catch (e) {
-    finishBuild(-1, `cannot start ${bash}: ${e.message}\n`);
+    finishBuild(-1, `não foi possível iniciar ${bash}: ${e.message}\n`);
     return sendJson(res, 500, { error: build.log.trim() });
   }
   const job = build;
@@ -336,7 +336,7 @@ function startBuild(res) {
   child.stdout.on("data", (chunk) => job === build && appendLog(chunk.toString()));
   child.stderr.on("data", (chunk) => job === build && appendLog(chunk.toString()));
   child.on("error", (err) => {
-    if (job === build) finishBuild(-1, `cannot run ${bash}: ${err.message}\n`);
+    if (job === build) finishBuild(-1, `não foi possível executar ${bash}: ${err.message}\n`);
   });
   child.on("close", (code) => {
     if (job === build) finishBuild(code === null ? -1 : code, "");
@@ -379,7 +379,7 @@ function osrmProxy(req, res, pathname, search) {
   const service = parts[2];
   if (!profile || !OSRM_SERVICES.includes(service)) {
     return sendJson(res, 400, {
-      error: `expected /osrm/<profile>/(${OSRM_SERVICES.join("|")})/v1/...`,
+      error: `esperado /osrm/<perfil>/(${OSRM_SERVICES.join("|")})/v1/...`,
     });
   }
   readZones((err, config) => {
@@ -388,7 +388,7 @@ function osrmProxy(req, res, pathname, search) {
     const port = def && def.host_port;
     if (!port) {
       return sendJson(res, 404, {
-        error: `no routing profile ${profile} with a host_port in docs/no_go_zones.json`,
+        error: `não há nenhum perfil de encaminhamento ${profile} com host_port em docs/no_go_zones.json`,
       });
     }
     const target = `/${parts.slice(2).join("/")}${search}`;
@@ -402,9 +402,9 @@ function osrmProxy(req, res, pathname, search) {
       });
     upstream.on("error", (e) => {
       sendJson(res, 502, {
-        error: `cannot reach the ${profile} routing server at ${OSRM_HOST}:${port} ` +
-          `(${e.code || e.message}). Is its container running? ` +
-          "(docker compose ps; a restricted profile is started by scripts/build_zone_graphs.sh --apply)",
+        error: `não foi possível contactar o servidor de encaminhamento ${profile} em ${OSRM_HOST}:${port} ` +
+          `(${e.code || e.message}). O contentor dele está a correr? ` +
+          "(docker compose ps; um perfil restrito é arrancado por scripts/build_zone_graphs.sh --apply)",
       });
     });
     upstream.end();
@@ -418,10 +418,10 @@ function serveStatic(req, res) {
   if (pathname === "/") pathname = "/index.html";
   const filePath = path.normalize(path.join(PUBLIC_DIR, pathname));
   if (!filePath.startsWith(PUBLIC_DIR)) {
-    return sendJson(res, 403, { error: "forbidden" });
+    return sendJson(res, 403, { error: "acesso proibido" });
   }
   fs.readFile(filePath, (err, data) => {
-    if (err) return sendJson(res, 404, { error: "not found" });
+    if (err) return sendJson(res, 404, { error: "não encontrado" });
     res.writeHead(200, {
       "Content-Type": MIME[path.extname(filePath)] || "application/octet-stream",
     });
@@ -444,8 +444,8 @@ function proxy(req, res) {
   });
   upstream.on("error", (err) => {
     sendJson(res, 502, {
-      error: `Cannot reach vroom-express at ${VROOM_URL.origin} (${err.code || err.message}). ` +
-        "Is the docker compose stack running? (frontend/setup.sh starts it)",
+      error: `Não foi possível contactar o vroom-express em ${VROOM_URL.origin} (${err.code || err.message}). ` +
+        "A pilha docker compose está a correr? (frontend/setup.sh arranca-a)",
     });
   });
   req.pipe(upstream);
@@ -456,7 +456,7 @@ http
     if (req.url.startsWith("/api")) return proxy(req, res);
     if (req.method === "PUT" && req.url === "/zones.json") return saveZones(req, res);
     if (req.method === "POST" && req.url === "/zones/build") return startBuild(res);
-    if (req.method !== "GET") return sendJson(res, 405, { error: "method not allowed" });
+    if (req.method !== "GET") return sendJson(res, 405, { error: "método não permitido" });
     if (req.url.startsWith("/osrm/")) {
       const url = new URL(req.url, "http://x");
       return osrmProxy(req, res, url.pathname, url.search);

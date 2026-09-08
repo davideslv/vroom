@@ -1,14 +1,15 @@
 <!doctype html>
-<html lang="en">
+<html lang="pt-PT">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Waste transport planner</title>
+<title>Logística de resíduos</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
 <script src="https://unpkg.com/@maplibre/maplibre-gl-leaflet@0.1.0/leaflet-maplibre-gl.js"></script>
+<script src="backend_messages.js"></script>
 <script src="rules.js"></script>
 <script src="defaults.js"></script>
 <script src="zones.js"></script>
@@ -145,11 +146,17 @@
   .field select { width: 100%; }
   .field input[type=number] { width: 100%; text-align: left; }
 
-  /* legend of operation kinds */
-  .legend { display: flex; flex-wrap: wrap; gap: 5px 12px; margin-top: 11px; padding-top: 10px; border-top: 1px dashed var(--line); }
-  .legend div { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--ink-2); }
+  /* key to the pins: a list row chip, and the map control made of them */
   .chip { width: 18px; height: 18px; flex: none; border-radius: 6px; display: grid; place-items: center; background: var(--c, var(--brand)); }
   .chip svg { display: block; }
+  .map-legend {
+    background: rgba(255,255,255,.93); border: 1px solid rgba(17,23,37,.12);
+    border-radius: 8px; box-shadow: var(--shadow-lg); padding: 7px 10px 8px;
+    display: flex; flex-direction: column; gap: 4px;
+    font-size: 13px; font-weight: 500; color: var(--ink-2); line-height: 1.3;
+  }
+  .map-legend div { display: flex; align-items: center; gap: 7px; }
+  .map-legend .chip { width: 24px; height: 24px; border-radius: 5px; }
 
   /* operation / fleet rows */
   ul.list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
@@ -235,13 +242,22 @@
   body.drawing #map { cursor: crosshair; }
   /* always-reachable action bar, outside the scrolling panel */
   #actions {
-    display: flex; gap: 8px; flex: none; padding: 12px 14px;
+    flex: none; padding: 12px 14px;
     background: var(--panel); border-top: 1px solid var(--line);
     box-shadow: 0 -3px 10px rgba(17,23,37,.05);
   }
   #actions[hidden] { display: none; }
+  #actions .bar { display: flex; gap: 8px; }
+  #actions .bar[hidden] { display: none; }
   #actions button { flex: 1; padding: 10px 12px; font-size: 13.5px; }
   #actions button.primary { flex: 2; }
+
+  /* the two steps of the Plan tab, and the heading that names one */
+  .step { display: flex; flex-direction: column; gap: 12px; }
+  .step[hidden] { display: none; }
+  .step-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+  .step-head h2 { margin: 0; font-size: 14.5px; font-weight: 650; letter-spacing: -.01em; color: var(--ink); }
+  .step-head .n { font-size: 12px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
 
   /* the scenarios, side by side: one row per plan, the shown one selected */
   #scenarios:empty { display: none; }
@@ -324,6 +340,13 @@
   /* Where one more job fits into a plan already on the road. The option
      cards reuse the route cards of a plan, since they are the same
      thing: a truck's remaining day, with the new stops woven into it. */
+  /* the extra job, under the plan it is asked about */
+  .extra-head {
+    display: flex; align-items: baseline; gap: 9px; flex-wrap: wrap;
+    margin-top: 3px; padding-top: 13px; border-top: 1px dashed var(--line);
+    font-size: 13.5px; font-weight: 650; color: var(--ink);
+  }
+  .extra-head span { font-weight: 400; font-size: 11.5px; color: var(--ink-3); }
   #extraResult:empty { display: none; }
   #extraResult { display: flex; flex-direction: column; gap: 10px; }
   .ro { display: flex; align-items: center; height: 33px; font-size: 12.5px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
@@ -417,51 +440,63 @@
       <div class="brand">
         <span class="logo"><svg width="19" height="19" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M1.6 11.6V4.9h7v6.7"/><path d="M8.6 7.3h2.9l2.9 2.7v1.6"/><circle cx="4.6" cy="12.4" r="1.4"/><circle cx="11.5" cy="12.4" r="1.4"/></svg></span>
         <div>
-          <h1>Waste transport planner</h1>
-          <p class="sub">Click the map, type coordinates or import a CSV</p>
+          <h1>Logística de resíduos</h1>
+          <!-- <p class="sub">Carregue no mapa, escreva coordenadas ou importe um CSV</p> -->
         </div>
       </div>
-      <div id="status"><span class="dot"></span><span class="txt">Checking solver…</span></div>
+      <div id="status"><span class="dot"></span><span class="txt">A verificar o otimizador…</span></div>
       <div class="tabs">
-        <button class="active" data-tab="solve">Plan</button>
-        <button data-tab="extra">Extra job</button>
-        <button data-tab="zones">Zones</button>
-        <button data-tab="costs">Costs</button>
-        <button data-tab="config">Config</button>
+        <button class="active" data-tab="solve">Plano</button>
+        <button data-tab="zones">Zonas</button>
+        <button data-tab="costs">Custos</button>
+        <button data-tab="config">Configuração</button>
       </div>
     </header>
 
     <!-- ===== Plan tab ===== -->
+    <!-- Two steps, one on screen at a time: the day being put
+         together, and the plans found for it. The footer offers what
+         the step on screen can do, which is the whole of the
+         navigation between them (see showStep). Nothing about how a
+         day is solved changed with the split; the same elements are
+         filled by the same code, only under one wrapper or the
+         other. -->
     <div class="panel" id="tab-solve">
+      <div class="step" id="step-manage">
+      <div class="step-head"><h2>Gestão de operações</h2><span class="n" id="manageCount"></span></div>
+
       <fieldset>
-        <legend>New operation</legend>
+        <legend>Nova operação</legend>
         <div class="grid2">
-          <div class="field"><span>Operation</span><select id="opType"></select></div>
-          <div class="field"><span>Container</span><select id="opSize"></select></div>
+          <div class="field"><span>Operação</span><select id="opType"></select></div>
+          <div class="field"><span>Contentor</span><select id="opSize"></select></div>
         </div>
         <div class="grid3">
           <div class="field"><span>Latitude</span><input id="newLat" type="number" step="0.000001" placeholder="41.14961" /></div>
           <div class="field"><span>Longitude</span><input id="newLng" type="number" step="0.000001" placeholder="-8.61099" /></div>
-          <button id="addOp">Add</button>
+          <button id="addOp">Adicionar</button>
         </div>
-        <div class="legend" id="opLegend"></div>
-        <div class="hint">Click anywhere on the map, or type a latitude and longitude, to add an operation with these settings. The company is fixed; its site is set in Config.</div>
+        <div class="hint">Carregue em qualquer ponto do mapa, ou escreva uma latitude e uma longitude, para acrescentar uma operação com estas definições. A empresa é fixa; a sua sede define-se na Configuração.</div>
       </fieldset>
 
       <fieldset>
-        <legend>Operations</legend>
+        <legend>Operações</legend>
         <ul id="points" class="list"></ul>
         <div class="btn-row">
-          <button id="importCsv">Import a CSV</button>
-          <button id="exportCsv">Download CSV</button>
+          <button id="importCsv">Importar um CSV</button>
+          <button id="exportCsv">Descarregar CSV</button>
         </div>
         <input id="csvFile" type="file" accept=".csv,.txt,text/csv,text/plain" hidden />
         <div id="csvReport" hidden></div>
-        <div class="hint">Type, size and priority (0–100, higher is dropped last) are editable per row. Points must be inside the loaded OSRM area (Portugal).</div>
-        <div class="hint">A CSV is the day's list as the office already has it. Its first row names the columns — <code>lat</code>, <code>lng</code>, <code>type</code> and <code>size</code> are needed, <code>priority</code> is not — in any order, spelled any way, with anything else on the row ignored. <code>type</code> is one of the four operations above and <code>size</code> a container size in m³. A comma, a semicolon or a tab separates the columns, and a file may be dropped anywhere on this window instead of picked. Importing replaces the whole list, so a file is read and shown before anything is thrown away. Download writes the list back in the same format, or an empty one gives a template to fill in.</div>
+        <div class="hint">O tipo, o tamanho e a prioridade (0–100, quanto maior mais tarde é descartada) editam-se linha a linha. Os pontos têm de ficar dentro da área OSRM carregada (Portugal).</div>
+        <div class="hint">Um CSV é a lista do dia tal como o escritório já a tem. A primeira linha nomeia as colunas — <code>lat</code>, <code>lng</code>, <code>type</code> e <code>size</code> são precisas, <code>priority</code> não — por qualquer ordem, escritas de qualquer maneira, e tudo o resto na linha é ignorado. <code>type</code> é uma das quatro operações acima e <code>size</code> um tamanho de contentor em m³. As colunas separam-se por vírgula, ponto e vírgula ou tabulação, e o ficheiro pode ser largado em qualquer ponto desta janela em vez de escolhido. Importar substitui a lista inteira, por isso o ficheiro é lido e mostrado antes de se deitar fora seja o que for. Descarregar escreve a lista de volta no mesmo formato; com a lista vazia dá um modelo para preencher.</div>
       </fieldset>
 
       <div id="problems"></div>
+      </div>
+
+      <div class="step" id="step-solutions" hidden>
+      <div class="step-head"><h2>Soluções apresentadas</h2><span class="n" id="solutionCount"></span></div>
 
       <!-- The day planned under each scenario (see the scenarios block
            of docs/waste_defaults.json): one row per plan with what it
@@ -471,41 +506,47 @@
       <div id="scenarios"></div>
 
       <div id="summary"></div>
-    </div>
 
-    <!-- ===== Extra job tab ===== -->
-    <!-- One more job, into a day that is already on the road. Nothing
-         is solved again: the plan on screen is taken as given and the
-         job is slotted into it, priced with travel times fetched
-         straight from OSRM (frontend/server.js proxies them at
-         /osrm/<profile>/...). The logic is in waste_insert.js and the
-         planner-facing description in docs/extra_job.md. -->
-    <div class="panel" id="tab-extra" hidden>
+      <!-- One more job, into a day that is already on the road. It
+           lives under the plan because that is what it is about: the
+           selected scenario is taken as given and the job is slotted
+           into it, priced with travel times fetched straight from OSRM
+           (frontend/server.js proxies them at /osrm/<profile>/...).
+           Nothing is solved again. Closed to start with, since most
+           days nobody rings; open, it takes the map over, a click
+           placing the job instead of adding an operation. The logic is
+           in waste_insert.js and the planner-facing description in
+           docs/extra_job.md. -->
+      <div class="extra-head">Encaixar mais um serviço<span>o dia já vai a meio e o telefone toca</span></div>
       <fieldset>
-        <legend>Where the day stands</legend>
+        <legend>Adicionado às</legend>
         <div class="grid3">
-          <div class="field"><span>It is now</span><input id="nowClock" type="time" step="60" /></div>
-          <div class="field"><span>On the road</span><span class="ro" id="nowState">—</span></div>
-          <button id="nowLive">Real clock</button>
+          <div class="field"><span>São agora</span><input id="nowClock" type="time" step="60" /></div>
+          <div class="field"><span>Na estrada</span><span class="ro" id="nowState">—</span></div>
+          <button id="nowLive">Hora real</button>
         </div>
-        <div class="hint">The clock the question is asked at. Everything a truck has already left is history and stays as planned: the job can only go in after it, which is what makes this different from planning the day again. Move the clock to try the same job earlier or later in the day.</div>
+        <div class="hint">A hora a que a pergunta é feita. Tudo o que um camião já deixou para trás é história e fica como estava planeado: o serviço só pode entrar depois disso, e é isso que distingue esta pergunta de voltar a planear o dia. Mexa no relógio para experimentar o mesmo serviço mais cedo ou mais tarde.</div>
       </fieldset>
 
       <fieldset>
-        <legend>The job that just came in</legend>
+        <legend>O serviço que acabou de entrar</legend>
         <div class="grid2">
-          <div class="field"><span>Operation</span><select id="extraType"></select></div>
-          <div class="field"><span>Container</span><select id="extraSize"></select></div>
+          <div class="field"><span>Operação</span><select id="extraType"></select></div>
+          <div class="field"><span>Contentor</span><select id="extraSize"></select></div>
         </div>
         <div class="grid3">
           <div class="field"><span>Latitude</span><input id="extraLat" type="number" step="0.000001" placeholder="37.030558" /></div>
           <div class="field"><span>Longitude</span><input id="extraLng" type="number" step="0.000001" placeholder="-7.976093" /></div>
-          <button id="extraFind" class="primary">Where does it fit?</button>
         </div>
-        <div class="hint">Click the map to put the job somewhere — while this tab is open a click moves this job instead of adding an operation to the day. The day itself is not touched: the plan stays exactly as it was solved, and this only says who could still take one more call.</div>
+        <div class="btn-row">
+          <button id="extraFind" class="primary">Onde é que encaixa?</button>
+          <button id="extraClear" disabled>Cancelar o serviço</button>
+        </div>
+        <div class="hint">Carregue no mapa para pôr o serviço algures — com um plano no ecrã, carregar move este serviço em vez de acrescentar uma operação ao dia; para acrescentar ao dia, volte à gestão de operações. O plano em si não é mexido: fica exatamente como foi resolvido, e isto só diz quem ainda poderia atender mais uma chamada.</div>
       </fieldset>
 
       <div id="extraResult"></div>
+      </div>
     </div>
 
     <!-- ===== Zones tab ===== -->
@@ -520,24 +561,24 @@
          docs/no_go_zones.md. -->
     <div class="panel" id="tab-zones" hidden>
       <fieldset>
-        <legend>Routing data</legend>
-        <div id="zoneState">Checking…</div>
+        <legend>Dados de encaminhamento</legend>
+        <div id="zoneState">A verificar…</div>
         <div class="btn-row">
-          <button id="applyZones" class="primary">Apply the areas to the routing data</button>
+          <button id="applyZones" class="primary">Aplicar as áreas aos dados de encaminhamento</button>
         </div>
-        <div class="hint">Zones are enforced by the road graph, not by the solver, so a change here only reaches the plan once the routing data is rebuilt and its container restarted. Apply does both; it takes a minute or two and the planner will not plan with out-of-date data meanwhile.</div>
+        <div class="hint">As zonas são impostas pelo grafo de estradas e não pelo otimizador, por isso uma alteração aqui só chega ao plano depois de os dados de encaminhamento serem reconstruídos e o contentor deles reiniciado. Aplicar faz as duas coisas; demora um minuto ou dois e, entretanto, o planeador não planeia com dados desatualizados.</div>
       </fieldset>
 
       <fieldset>
-        <legend>Areas</legend>
+        <legend>Áreas</legend>
         <div class="btn-row">
-          <button id="drawZone">Draw a zone</button>
-          <button id="finishZone" hidden>Finish</button>
-          <button id="cancelZone" hidden>Cancel</button>
+          <button id="drawZone">Desenhar uma zona</button>
+          <button id="finishZone" hidden>Terminar</button>
+          <button id="cancelZone" hidden>Cancelar</button>
         </div>
-        <div class="hint" id="drawHint">Click on the map to place the corners of the area, then Finish (or double-click the last corner). At least three corners.</div>
+        <div class="hint" id="drawHint">Carregue no mapa para colocar os vértices da área e depois em Terminar (ou carregue duas vezes no último vértice). No mínimo três vértices.</div>
         <ul id="zones" class="list"></ul>
-        <div class="hint">Tick which vehicles an area is closed to. Areas are stored in <code>docs/no_go_zones.json</code> and saved as soon as they change, so they are shared with everyone using this planner — unlike the Config tab, which only changes this browser. To reshape an area, delete it and draw it again.</div>
+        <div class="hint">Assinale a que veículos cada área está fechada. As áreas ficam guardadas em <code>docs/no_go_zones.json</code> e são gravadas assim que mudam, por isso são partilhadas por todos os que usam este planeador — ao contrário do separador Configuração, que só muda este navegador. Para mudar a forma de uma área, apague-a e desenhe-a de novo.</div>
       </fieldset>
     </div>
 
@@ -552,106 +593,113 @@
          the solver on the next Plan. -->
     <div class="panel" id="tab-costs" hidden>
       <fieldset>
-        <legend>Cost per kilometre</legend>
+        <legend>Custo por quilómetro</legend>
         <ul id="costPerKm" class="list"></ul>
-        <div class="hint">What a kilometre of that truck really costs the company: fuel, tyres, wear, everything that scales with the road. Trucks of one type are identical, so this is per type. Only the differences between the types decide which truck drives.</div>
+        <div class="hint">O que um quilómetro desse camião custa realmente à empresa: combustível, pneus, desgaste, tudo o que cresce com a estrada. Os camiões de um tipo são idênticos, por isso isto é por tipo. Só as diferenças entre os tipos decidem que camião é que sai.</div>
       </fieldset>
 
       <fieldset>
         <legend>Chico</legend>
         <ul id="costChico" class="list"></ul>
-        <div class="hint">What attaching a chico does to that truck's cost per kilometre: 1.25 means a quarter dearer with the trailer on. At 1 the solver takes a chico whenever it saves kilometres. Hitching time is time, and time is not priced.</div>
+        <div class="hint">O que atrelar um chico faz ao custo por quilómetro desse camião: 1,25 quer dizer um quarto mais caro com o reboque atrás. A 1, o otimizador leva um chico sempre que isso poupe quilómetros. O tempo de atrelar é tempo, e o tempo não tem preço aqui.</div>
       </fieldset>
 
       <fieldset>
-        <legend>Starting early</legend>
-        <label><span>Per hour before the working day</span><input id="costEarlyPerHour" type="number" min="0" step="0.5" value="0" /></label>
-        <div class="hint" id="earlyCostHint">What an hour of early start is worth: a truck going out before the day begins works that hour on top of its day, so unlike ordinary driver time it is a real cost and is priced. The solver sends a truck out early only when doing so saves more road than the early hours cost. It cannot keep an operation from being done — the most operations come first and money only chooses between plans doing the same work. One price covers the whole fleet; how early each type of truck may go out at all is set per type in Config. At 0 the early start is free and trucks may take one for nothing.</div>
+        <legend>Saída antecipada</legend>
+        <label><span>Por hora antes do dia de trabalho</span><input id="costEarlyPerHour" type="number" min="0" step="0.5" value="0" /></label>
+        <div class="hint" id="earlyCostHint">Quanto vale uma hora de saída antecipada: um camião que sai antes de o dia começar trabalha essa hora por cima do seu dia, por isso, ao contrário do tempo normal do motorista, é um custo a sério e tem preço. O otimizador só manda um camião sair mais cedo quando isso poupa mais estrada do que as horas antecipadas custam. Não pode impedir que uma operação se faça — fazer o maior número de operações vem primeiro, e o dinheiro só escolhe entre planos que fazem o mesmo trabalho. Um preço único serve toda a frota; quanto mais cedo cada tipo de camião pode sair define-se por tipo na Configuração. A 0, a saída antecipada é gratuita e os camiões podem usá-la à toa.</div>
       </fieldset>
 
       <fieldset>
-        <legend>Working the afternoon</legend>
-        <label><span>Per truck out after lunch</span><input id="costAfternoonFixed" type="number" min="0" step="1" value="0" /></label>
-        <div class="hint" id="afternoonCostHint">Leave this at 0 unless the day is lopsided. With a morning and an afternoon of equal length the two are worth exactly the same to the solver, and the plan comes out in the morning anyway, so a price here buys nothing; the afternoon work left in such a plan is work that did not fit the morning, and no price moves that — the most operations always come first. Where it earns its keep is a day cut unevenly, a short morning against a long afternoon: then the afternoon really is the cheaper half, whole days end up in it, and this is what buys them back. It also settles the matter where the two halves tie, which today the planner wins by the order it happens to offer the trucks in rather than by anything it has been told. Charged once per truck that works the afternoon, however many operations it does there, so a truck already out does its next one for free. It is not money the company spends — nobody is paid for the afternoon who is not paid for the morning — so it decides the plan without appearing in what the plan is reported to cost.</div>
+        <legend>Trabalhar de tarde</legend>
+        <label><span>Por camião na rua depois do almoço</span><input id="costAfternoonFixed" type="number" min="0" step="1" value="0" /></label>
+        <div class="hint" id="afternoonCostHint">Deixe isto a 0 a não ser que o dia esteja desequilibrado. Com uma manhã e uma tarde do mesmo tamanho, as duas valem exatamente o mesmo para o otimizador, e o plano sai de manhã de qualquer maneira, por isso um preço aqui não compra nada; o trabalho de tarde que resta num plano desses é trabalho que não coube na manhã, e nenhum preço mexe nisso — fazer o maior número de operações vem sempre primeiro. Onde isto se justifica é num dia cortado de forma desigual, uma manhã curta contra uma tarde longa: aí a tarde é mesmo a metade mais barata, dias inteiros acabam nela, e é isto que os traz de volta. Serve também para desempatar quando as duas metades valem o mesmo, caso em que hoje a manhã ganha pela ordem em que calha oferecer os camiões e não por nada que lhe tenha sido dito. Cobrado uma vez por camião que trabalhe de tarde, faça lá as operações que fizer, por isso um camião que já saiu faz a seguinte de graça. Não é dinheiro que a empresa gaste — ninguém é pago pela tarde que não seja pago pela manhã — por isso decide o plano sem aparecer no custo que se reporta dele.</div>
       </fieldset>
 
       <fieldset>
-        <legend>What the solver is told</legend>
+        <legend>O que é dito ao otimizador</legend>
         <div class="formula" id="costFormula"></div>
       </fieldset>
 
       <fieldset>
-        <legend>Limits per truck and shift</legend>
-        <label><span>Max driving time (min)</span><input id="maxTravelTime" type="number" min="0" step="1" value="0" /></label>
-        <label><span>Max distance (km)</span><input id="maxDistance" type="number" min="0" step="1" value="0" /></label>
-        <label><span>Max tasks</span><input id="maxTasks" type="number" min="0" step="1" value="0" /></label>
-        <div class="hint">Hard caps, not costs: a route breaking one of them is not a plan at all, so operations get left for tomorrow rather than made expensive. 0 means no limit. With a lunch, each cap applies to the morning and to the afternoon separately, not to the whole day. A task is one shipment step, not one operation: an exchange is four (load the empty and drop the full at the company, leave the empty and take the full at the client).</div>
+        <legend>Limites por camião e turno</legend>
+        <label><span>Tempo máx. de condução (min)</span><input id="maxTravelTime" type="number" min="0" step="1" value="0" /></label>
+        <label><span>Distância máx. (km)</span><input id="maxDistance" type="number" min="0" step="1" value="0" /></label>
+        <label><span>N.º máx. de tarefas</span><input id="maxTasks" type="number" min="0" step="1" value="0" /></label>
+        <div class="hint">Limites rígidos, não custos: uma rota que quebre um deles não é sequer um plano, por isso as operações ficam para amanhã em vez de ficarem caras. 0 quer dizer sem limite. Havendo almoço, cada limite aplica-se à manhã e à tarde em separado, e não ao dia inteiro. Uma tarefa é um passo de transporte, não uma operação: uma troca são quatro (carregar o vazio e despejar o cheio na empresa, deixar o vazio e levar o cheio no cliente).</div>
       </fieldset>
 
       <fieldset>
-        <legend>Search</legend>
-        <label><span>Exploration level (0–5)</span><input id="explorationLevel" type="number" min="0" max="5" step="1" value="5" /></label>
-        <label><span>Threads</span><input id="threads" type="number" min="1" max="32" step="1" value="4" /></label>
-        <label><span>Follow the roads</span><input id="geometry" type="checkbox" checked /></label>
-        <div class="hint">Exploration is how hard the solver looks: 5 is the best plan and the slowest, 0 the quickest. Following the roads asks for the driven route (vroom's -g) so the map draws real streets and kilometres are reported; without it the map draws straight lines. A per km cost or a distance limit needs it and turns it on by itself.</div>
+        <legend>Procura</legend>
+        <label><span>Nível de exploração (0–5)</span><input id="explorationLevel" type="number" min="0" max="5" step="1" value="5" /></label>
+        <label><span>Fios de execução</span><input id="threads" type="number" min="1" max="32" step="1" value="4" /></label>
+        <label><span>Seguir as estradas</span><input id="geometry" type="checkbox" checked /></label>
+        <div class="hint">A exploração é o esforço com que o otimizador procura: 5 dá o melhor plano e é o mais lento, 0 é o mais rápido. Seguir as estradas pede o traçado conduzido (o -g do vroom) para que o mapa desenhe ruas a sério e os quilómetros sejam reportados; sem isso, o mapa desenha linhas retas. Um custo por km ou um limite de distância precisam disso e ligam-no por si.</div>
       </fieldset>
 
       <fieldset>
-        <legend>How the solver ranks plans</legend>
+        <legend>Como o otimizador ordena os planos</legend>
         <ol class="rank">
-          <li><b>Priority</b> — the total priority of the operations done.</li>
-          <li><b>Operations done</b> — the most, whatever they cost.</li>
-          <li><b>Cost</b> — the kilometres, priced per truck above, plus a charge on driving time that the scenario sets.</li>
-          <li><b>Trucks used</b>, then <b>driving time</b>, then <b>distance</b>.</li>
+          <li><b>Prioridade</b> — a prioridade total das operações feitas.</li>
+          <li><b>Operações feitas</b> — o maior número possível, custe o que custar.</li>
+          <li><b>Custo</b> — os quilómetros, ao preço de cada camião acima, mais um encargo sobre o tempo de condução que o cenário define.</li>
+          <li><b>Camiões usados</b>, depois <b>tempo de condução</b>, depois <b>distância</b>.</li>
         </ol>
-        <div class="hint">Each line only speaks when the ones above it are tied, so cost never drops an operation to save money. What an hour on the road is worth is the one thing left open, and it is what the scenarios differ on: the drivers are paid by the month whether a truck goes out or not, so the cheapest plan does not try to save their hours and sends the small cheap trucks out on many trips, while a plan that weighs hours heavily puts the work on fewer, bigger, dearer trucks. Every scenario does the same operations — the two lines above cost say so — and the working hours in Config and the caps below are hard limits either way. The scenarios, and how heavily each one weighs an hour, are the <code>scenarios</code> block of <code>docs/waste_defaults.json</code>.</div>
-        <div class="btn-row"><button id="resetCosts">Back to the defaults</button></div>
+        <div class="hint">Cada linha só fala quando as de cima empatam, por isso o custo nunca deita fora uma operação para poupar dinheiro. Quanto vale uma hora na estrada é a única coisa que fica em aberto, e é nisso que os cenários diferem: os motoristas são pagos ao mês, saia o camião ou não, por isso o plano mais barato não tenta poupar as horas deles e manda os camiões pequenos e baratos fazer muitas viagens, ao passo que um plano que pesa muito as horas põe o trabalho em menos camiões, maiores e mais caros. Todos os cenários fazem as mesmas operações — as duas linhas acima do custo dizem-no — e o horário da Configuração e os limites abaixo são limites rígidos em qualquer caso. Os cenários, e o peso que cada um dá a uma hora, são o bloco <code>scenarios</code> de <code>docs/waste_defaults.json</code>.</div>
+        <div class="btn-row"><button id="resetCosts">Voltar aos valores por omissão</button></div>
       </fieldset>
     </div>
 
     <!-- ===== Config tab ===== -->
     <div class="panel" id="tab-config" hidden>
       <fieldset>
-        <legend>Fleet</legend>
+        <legend>Frota</legend>
         <ul id="fleet" class="list"></ul>
-        <div class="hint">Trucks of each type available today, and chicos: trailers that make a truck carry three allowed loads at once. The solver decides which trucks take a chico, never more than the trucks of that type. Materials travel in a full container of the chosen size. Loading rules per type follow docs/waste_transport_problem.md.</div>
+        <div class="hint">Camiões de cada tipo disponíveis hoje, e chicos: reboques que fazem um camião levar três cargas permitidas de uma vez. O otimizador decide que camiões levam chico, nunca mais do que os camiões desse tipo. Os materiais viajam num contentor cheio do tamanho escolhido. As regras de carga por tipo seguem docs/waste_transport_problem.md.</div>
 
-        <div class="sub">Containers in the yard</div>
+        <div class="sub">Contentores no estaleiro</div>
         <ul id="containers" class="list"></ul>
-        <div class="hint">Containers of each size the company has to hand out today. Only operations that take one out use them up: delivering an empty one, an exchange (it leaves an empty behind) and materials (they leave in a container of that size). Picking up a full container does not, it brings one in. When more operations than containers need a size, the extra ones are left for another day and the solver picks which, priority first. Leave a box empty for a stock large enough not to matter.</div>
+        <div class="hint">Contentores de cada tamanho que a empresa tem para dar hoje. Só as operações que levam um daqui os gastam: entregar um vazio, uma troca (deixa um vazio para trás) e materiais (saem num contentor desse tamanho). Recolher um contentor cheio não gasta nenhum, traz um. Quando há mais operações do que contentores de um tamanho, as que sobram ficam para outro dia e é o otimizador que escolhe quais, a prioridade primeiro. Deixe a caixa vazia para um stock grande ao ponto de não importar.</div>
       </fieldset>
 
       <fieldset>
-        <legend>Working day</legend>
-        <label><span>Start</span><input id="dayStart" type="time" value="08:00" /></label>
-        <label><span>End</span><input id="dayEnd" type="time" value="17:00" /></label>
-        <label><span>Lunch start</span><input id="lunchStart" type="time" value="12:00" /></label>
-        <label><span>Lunch end</span><input id="lunchEnd" type="time" value="13:00" /></label>
-        <div class="hint">Lunch is spent at the company: every truck is back and unloaded by the lunch start and loads nothing before the lunch end, so the day is a morning and an afternoon shift, both planned together. Set both to the same time for no lunch.</div>
+        <legend>Dia de trabalho</legend>
+        <label><span>Início</span><input id="dayStart" type="time" value="08:00" /></label>
+        <label><span>Fim</span><input id="dayEnd" type="time" value="17:00" /></label>
+        <label><span>Início do almoço</span><input id="lunchStart" type="time" value="12:00" /></label>
+        <label><span>Fim do almoço</span><input id="lunchEnd" type="time" value="13:00" /></label>
+        <div class="hint">O almoço é passado na empresa: todos os camiões estão de volta e descarregados à hora de início do almoço e nada carregam antes do fim dele, por isso o dia é um turno de manhã e um de tarde, planeados em conjunto. Ponha as duas horas iguais para não haver almoço.</div>
 
-        <div class="sub">Starting early</div>
+        <div class="sub">Saída antecipada</div>
         <ul id="earlyStart" class="list"></ul>
-        <div class="hint">How much earlier than the start above a truck of that type may go out, offered in two steps: half of it and all of it. Trucks of a type are identical, so this is per type — set it where the drivers can actually come in early and leave the rest at 0. Only the morning may start early: the afternoon begins when lunch ends. The day is only made longer at the front, so a truck that comes in early still finishes at the end above. Which trucks come in early is the solver's decision, weighed against what an hour of it costs in the Costs tab. Each step is one more version of every truck of that type for the solver to weigh, so 0 is the cheapest answer where it is not needed.</div>
+        <div class="hint">Quanto mais cedo do que o início acima pode sair um camião desse tipo, oferecido em dois passos: metade e a totalidade. Os camiões de um tipo são idênticos, por isso isto é por tipo — defina-o onde os motoristas possam mesmo entrar mais cedo e deixe o resto a 0. Só a manhã pode começar mais cedo: a tarde começa quando o almoço acaba. O dia só se alonga à frente, por isso um camião que entre mais cedo acaba na mesma à hora de fim acima. Quais os camiões que entram mais cedo é decisão do otimizador, pesada contra o que uma hora disso custa no separador Custos. Cada passo é mais uma versão de cada camião desse tipo para o otimizador pesar, por isso 0 é a resposta mais barata onde não é preciso.</div>
       </fieldset>
 
       <fieldset>
-        <legend>Operation times</legend>
-        <label><span>At a client, per container (min)</span><input id="clientService" type="number" min="0" step="1" value="10" /></label>
-        <label><span>At the company, per visit (min)</span><input id="companySetup" type="number" min="0" step="1" value="5" /></label>
-        <label><span>At the company, per container (min)</span><input id="companyService" type="number" min="0" step="1" value="5" /></label>
+        <legend>Tempos das operações</legend>
+        <label><span>No cliente, por contentor (min)</span><input id="clientService" type="number" min="0" step="1" value="10" /></label>
+        <label><span>Na empresa, por visita (min)</span><input id="companySetup" type="number" min="0" step="1" value="5" /></label>
+        <label><span>Na empresa, por contentor (min)</span><input id="companyService" type="number" min="0" step="1" value="5" /></label>
       </fieldset>
 
-      <!-- <div class="hint">Everything on this tab starts from <code>docs/waste_defaults.json</code>, next to the loading rules in <code>docs/waste_rules.json</code>. Changes here live in this browser tab only — edit that file to change the defaults.</div> -->
+      <!-- <div class="hint">Tudo neste separador parte de <code>docs/waste_defaults.json</code>, ao lado das regras de carga em <code>docs/waste_rules.json</code>. As alterações feitas aqui vivem só neste separador do navegador — edite esse ficheiro para mudar os valores por omissão.</div> -->
     </div>
 
+    <!-- One footer, one row of buttons per step: what a step can do is
+         also how you leave it. -->
     <footer id="actions">
-      <button id="solve" class="primary">Plan the day</button>
-      <button id="clear">Clear</button>
+      <div class="bar" id="actions-manage">
+        <button id="solve" class="primary">Encontrar plano</button>
+        <button id="clear">Limpar</button>
+      </div>
+      <div class="bar" id="actions-solutions" hidden>
+        <button id="backToManage">Voltar à gestão de operações</button>
+      </div>
     </footer>
   </div>
 </div>
 
-<div id="drop" hidden><span>Drop the CSV to load today's operations</span></div>
+<div id="drop" hidden><span>Largue o CSV para carregar as operações de hoje</span></div>
 
 <script>
 // Truck types and loading rules come from docs/waste_rules.json; the
@@ -660,7 +708,7 @@
 // frontend/server.js as /rules.js and /defaults.js.
 function bootError(file) {
   document.getElementById("status").querySelector(".txt").textContent =
-    `${file} could not be loaded (is frontend/server.js running?).`;
+    `Não foi possível carregar ${file} (o frontend/server.js está a correr?).`;
   document.getElementById("status").className = "err";
   throw new Error(`${file} missing`);
 }
@@ -678,7 +726,18 @@ let M = WasteModel.create(WASTE_RULES, WASTE_DEFAULTS, zoneConfig);
 // The company is fixed on the map: it only moves from the Config tab.
 let depot = { ...M.COMPANY };
 let operations = [];       // [{id, lat, lng, type, size, priority}]
-let nextOpId = 1;
+// Operations are named from their id (M.labelOf: 1 is A, 2 is B, 27 is
+// AA), and a new one takes the lowest name nobody is using rather than
+// the next one ever handed out. Delete B of A, B, C and the next
+// operation added is B again: no gaps to explain, and — the part that
+// matters more — no existing operation is ever renamed, so the pin
+// being looked at does not become something else while it is looked at.
+function freeOpId() {
+  const taken = new Set(operations.map((op) => op.id));
+  let id = 1;
+  while (taken.has(id)) id++;
+  return id;
+}
 let fleet = M.defaultFleet();
 let chicos = M.defaultChicos();
 // Containers of each size in the yard, {size: count} with null for a
@@ -724,50 +783,87 @@ const COMPANY_COLOR = "#111725";
 const COMPANY_GLYPH = '<path d="M2.6 8 8 3.4 13.4 8"/><path d="M4.4 7.2v5.4h7.2V7.2"/><path d="M6.9 12.6V9.6h2.2v3"/>';
 const UNASSIGNED_COLOR = "#98a2b3";
 
+// The company is not an operation, but it is drawn like one — a pin
+// on the map, a chip in a list — so it is described the same way. Its
+// glyph is the denser of the two, hence the lighter stroke at chip
+// size, where 1.7 would close the windows of the house up.
+const COMPANY_STYLE = { color: COMPANY_COLOR, glyph: COMPANY_GLYPH, chipStroke: 1.5 };
+
+// How big the pins are drawn. The shapes below are written in their
+// own coordinates and only the size they are rendered at is scaled,
+// so this one number is the whole of it: 1 is the size the map was
+// first drawn at, and much past 1.4 the pins start hiding the streets
+// they stand on. Change it and reload; nothing else needs touching.
+const PIN_SCALE = 1.15;
+
+// Each pin in its own coordinates: the size of the drawing, where its
+// tip sits (the point on the map it marks) and how far above that tip
+// a tooltip hangs. All three are scaled by PIN_SCALE together, so a
+// bigger pin still points at exactly the same place.
+const PIN_BOX = { w: 34, h: 38, tip: [14, 35], tooltip: -30 };
+const COMPANY_PIN_BOX = { w: 34, h: 44, tip: [17, 42], tooltip: -36 };
+
 function glyphGroup(glyph, tx, ty, scale, width) {
   return `<g transform="translate(${tx} ${ty})${scale !== 1 ? ` scale(${scale})` : ""}" fill="none" stroke="#fff" ` +
     `stroke-width="${width}" stroke-linecap="round" stroke-linejoin="round">${glyph}</g>`;
 }
 
-// Small square chip used in the legend and in every operation row.
-function chip(type, color) {
-  const st = OP_STYLE[type];
-  return `<span class="chip" style="--c:${color || st.color}">` +
-    `<svg width="12" height="12" viewBox="0 0 16 16">${glyphGroup(st.glyph, 0, 0, 1, 1.7)}</svg></span>`;
+// Small square chip used in the key and in every operation row: the
+// same glyph the pin carries, at list size. `style` is an OP_STYLE
+// entry or COMPANY_STYLE; `color` overrides its colour, for an
+// operation drawn in the colour of the route that does it.
+function chip(style, color) {
+  return `<span class="chip" style="--c:${color || style.color}">` +
+    `<svg width="18" height="18" viewBox="0 0 16 16">` +
+    `${glyphGroup(style.glyph, 0, 0, 1, style.chipStroke || 1.7)}</svg></span>`;
 }
 
-// Teardrop pin, 34x38, tip at (14,35): glyph tells the operation kind,
+// One Leaflet icon from a pin's SVG body. The viewBox keeps the box's
+// own coordinates, so the shapes never have to know what scale they
+// are drawn at: everything Leaflet is told about the icon is scaled
+// here and nowhere else.
+function pinIcon(body, box, className) {
+  // Rounded only so the numbers in the DOM stay readable: a scale of
+  // 1.15 otherwise writes 39.099999999999994 into every pin.
+  const px = (n) => Math.round(n * PIN_SCALE * 100) / 100;
+  const w = px(box.w);
+  const h = px(box.h);
+  return L.divIcon({
+    className: "pin-icon",
+    html: `<div class="${className}"><svg width="${w}" height="${h}" viewBox="0 0 ${box.w} ${box.h}"` +
+          ` xmlns="http://www.w3.org/2000/svg">${body}</svg></div>`,
+    iconSize: [w, h],
+    iconAnchor: [px(box.tip[0]), px(box.tip[1])],
+    tooltipAnchor: [0, px(box.tooltip)],
+  });
+}
+
+// Teardrop pin, tip at the bottom: the glyph tells the operation kind,
 // the badge carries the operation id, the fill is the route colour once
 // the day has been planned.
 function opPin(op, color) {
   const st = OP_STYLE[op.type];
   const dim = color === UNASSIGNED_COLOR;
-  const html =
-    `<div class="pin${dim ? " dim" : ""}">` +
-    `<svg width="34" height="38" viewBox="0 0 34 38" xmlns="http://www.w3.org/2000/svg">` +
-      `<circle class="halo" cx="14" cy="14" r="13.5" fill="${color}"/>` +
-      `<path d="M14 34.6C14 34.6 24.5 21.6 24.5 14A10.5 10.5 0 1 0 3.5 14C3.5 21.6 14 34.6 14 34.6Z"` +
-      ` fill="${color}" stroke="#fff" stroke-width="2" stroke-linejoin="round"/>` +
-      glyphGroup(st.glyph, 6, 6, 1, 1.7) +
-      `<circle cx="26" cy="7.5" r="7" fill="#fff" stroke="${color}" stroke-width="1.6"/>` +
-      `<text x="26" y="7.5" dy="3.1" text-anchor="middle" font-size="8.5" font-weight="700"` +
-      ` fill="#111725" font-family="ui-sans-serif, system-ui, sans-serif">${op.id}</text>` +
-    `</svg></div>`;
-  return L.divIcon({ className: "pin-icon", html, iconSize: [34, 38], iconAnchor: [14, 35], tooltipAnchor: [0, -30] });
+  const body =
+    `<circle class="halo" cx="14" cy="14" r="13.5" fill="${color}"/>` +
+    `<path d="M14 34.6C14 34.6 24.5 21.6 24.5 14A10.5 10.5 0 1 0 3.5 14C3.5 21.6 14 34.6 14 34.6Z"` +
+    ` fill="${color}" stroke="#fff" stroke-width="2" stroke-linejoin="round"/>` +
+    glyphGroup(st.glyph, 6, 6, 1, 1.7) +
+    `<circle cx="26" cy="7.5" r="7" fill="#fff" stroke="${color}" stroke-width="1.6"/>` +
+    `<text x="26" y="7.5" dy="3.1" text-anchor="middle" font-size="8.5" font-weight="700"` +
+    ` fill="#111725" font-family="ui-sans-serif, system-ui, sans-serif">${M.labelOf(op.id)}</text>`;
+  return pinIcon(body, PIN_BOX, `pin${dim ? " dim" : ""}`);
 }
 
 // The company sits a size up and in near-black, so the base of every
 // route reads at a glance.
 function companyPin() {
-  const html =
-    `<div class="pin">` +
-    `<svg width="34" height="44" viewBox="0 0 34 44" xmlns="http://www.w3.org/2000/svg">` +
-      `<circle class="halo" cx="17" cy="17" r="16" fill="${COMPANY_COLOR}"/>` +
-      `<path d="M17 42C17 42 29.5 26.4 29.5 17A12.5 12.5 0 1 0 4.5 17C4.5 26.4 17 42 17 42Z"` +
-      ` fill="${COMPANY_COLOR}" stroke="#fff" stroke-width="2.4" stroke-linejoin="round"/>` +
-      glyphGroup(COMPANY_GLYPH, 6.5, 6.5, 1.31, 1.35) +
-    `</svg></div>`;
-  return L.divIcon({ className: "pin-icon", html, iconSize: [34, 44], iconAnchor: [17, 42], tooltipAnchor: [0, -36] });
+  const body =
+    `<circle class="halo" cx="17" cy="17" r="16" fill="${COMPANY_COLOR}"/>` +
+    `<path d="M17 42C17 42 29.5 26.4 29.5 17A12.5 12.5 0 1 0 4.5 17C4.5 26.4 17 42 17 42Z"` +
+    ` fill="${COMPANY_COLOR}" stroke="#fff" stroke-width="2.4" stroke-linejoin="round"/>` +
+    glyphGroup(COMPANY_GLYPH, 6.5, 6.5, 1.31, 1.35);
+  return pinIcon(body, COMPANY_PIN_BOX, "pin");
 }
 
 // ---------- tabs ----------
@@ -779,9 +875,14 @@ document.querySelectorAll(".tabs button").forEach((btn) => {
     }
     document.getElementById("actions").hidden = btn.dataset.tab !== "solve";
     if (btn.dataset.tab === "zones") refreshZoneState();
-    if (btn.dataset.tab === "extra") enterExtraTab();
   };
 });
+
+// Is the Plan tab the one on screen? A click on the map only means
+// something there, and the panel is the only thing that says so.
+function onPlanTab() {
+  return !document.getElementById("tab-solve").hidden;
+}
 
 // ---------- selectors ----------
 function fillTypeSelect(sel, value, short) {
@@ -807,9 +908,6 @@ const opSizeSel = document.getElementById("opSize");
 fillTypeSelect(opTypeSel, "exchange");
 fillSizeSelect(opSizeSel, 6);
 opTypeSel.onchange = () => { opSizeSel.disabled = !M.OPERATION_TYPES[opTypeSel.value].needsSize; };
-
-document.getElementById("opLegend").innerHTML = Object.entries(M.OPERATION_TYPES)
-  .map(([key, t]) => `<div>${chip(key)}${esc(t.short)}</div>`).join("");
 
 // ---------- map ----------
 const map = L.map("map", { zoomControl: false }).setView([M.COMPANY.lat, M.COMPANY.lng], 13);
@@ -876,7 +974,7 @@ const MutedControl = L.Control.extend({
     const bar = L.DomUtil.create("div", "leaflet-bar map-toggle");
     const a = L.DomUtil.create("a", "", bar);
     a.href = "#";
-    a.title = "Toggle basemap colours";
+    a.title = "Alternar as cores do mapa base";
     a.innerHTML = '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" ' +
       'stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="5.6"/>' +
       '<path d="M8 2.4v11.2"/><path d="M8 2.4a5.6 5.6 0 0 1 0 11.2z" fill="currentColor" stroke="none"/></svg>';
@@ -890,6 +988,25 @@ const MutedControl = L.Control.extend({
 });
 map.addControl(new MutedControl());
 setBasemap("muted");
+
+// The key to the pins. It explains what is drawn on the map, so it
+// sits on the map rather than in the panel, out of the way in the
+// bottom right above the attribution. The company is in it too: it is
+// a pin like any other and the one nobody is told the meaning of.
+const LegendControl = L.Control.extend({
+  options: { position: "bottomright" },
+  onAdd() {
+    const box = L.DomUtil.create("div", "map-legend");
+    box.innerHTML =
+      `<div>${chip(COMPANY_STYLE)}<span>Empresa</span></div>` +
+      Object.entries(M.OPERATION_TYPES)
+        .map(([key, t]) => `<div>${chip(OP_STYLE[key])}<span>${esc(t.short)}</span></div>`)
+        .join("");
+    L.DomEvent.disableClickPropagation(box);
+    return box;
+  },
+});
+map.addControl(new LegendControl());
 
 const zoneLayer = L.layerGroup().addTo(map);  // below everything else
 const routeLayer = L.layerGroup().addTo(map); // below the markers
@@ -909,7 +1026,7 @@ if (!ZONES_ENABLED) {
 
 let zoneList = ((zoneConfig || {}).zones || []).map((z) => ({
   id: Number(z.id),
-  name: String(z.name || `zone ${z.id}`),
+  name: String(z.name || `zona ${z.id}`),
   blocked_profiles: (z.blocked_profiles || []).slice(),
   polygon: (z.polygon || []).map((pt) => [Number(pt[0]), Number(pt[1])]),
 }));
@@ -943,7 +1060,7 @@ function renderZones() {
     if (z.polygon.length < 3) continue;
     const closed = z.blocked_profiles.length
       ? z.blocked_profiles.map(profileLabel).join(", ")
-      : "closed to nobody yet";
+      : "ainda não está fechada a ninguém";
     L.polygon(z.polygon.map(([lng, lat]) => [lat, lng]), {
       color: "#b91c1c", weight: 1.5, dashArray: "5 4",
       fillColor: "#b91c1c", fillOpacity: 0.1, interactive: false,
@@ -960,7 +1077,7 @@ function renderZoneList() {
   if (!zoneList.length) {
     const li = document.createElement("li");
     li.className = "empty";
-    li.textContent = "No area yet. Draw one to keep some trucks out of it.";
+    li.textContent = "Ainda não há áreas. Desenhe uma para manter alguns camiões fora dela.";
     list.appendChild(li);
     return;
   }
@@ -971,13 +1088,13 @@ function renderZoneList() {
     name.className = "name";
     const input = document.createElement("input");
     input.value = z.name;
-    input.title = "name of the area";
-    input.onchange = () => { z.name = input.value.trim() || `zone ${z.id}`; saveZones(); };
+    input.title = "nome da área";
+    input.onchange = () => { z.name = input.value.trim() || `zona ${z.id}`; saveZones(); };
     name.appendChild(input);
 
     const meta = document.createElement("span");
     meta.className = "meta";
-    meta.textContent = `${z.polygon.length} corners`;
+    meta.textContent = `${z.polygon.length} vértices`;
 
     const profiles = document.createElement("span");
     profiles.className = "profiles";
@@ -993,7 +1110,7 @@ function renderZoneList() {
         saveZones();
       };
       label.appendChild(box);
-      label.appendChild(document.createTextNode(`closed to ${profileLabel(profile)}`));
+      label.appendChild(document.createTextNode(`fechada a: ${profileLabel(profile)}`));
       profiles.appendChild(label);
     }
 
@@ -1011,7 +1128,9 @@ async function saveZones() {
   rebuildModel();
   renderZones();
   renderProblems();
-  routeLayer.clearLayers();
+  // The zones decide which routing profile a vehicle uses, so a plan
+  // made under the old ones drove roads that are now closed.
+  clearPlan();
   if (!ZONES_ENABLED) return;
   try {
     const res = await fetch("/zones.json", {
@@ -1021,12 +1140,12 @@ async function saveZones() {
     });
     const body = await res.json();
     if (!res.ok) {
-      setStatus(`Could not save the areas: ${body.error || res.status}`, "err");
+      setStatus(`Não foi possível guardar as áreas: ${BackendMessages.of(body) || BackendMessages.status(res.status)}`, "err");
       return;
     }
-    setStatus(`Areas saved to docs/no_go_zones.json (${body.zones}).`);
+    setStatus(`Áreas guardadas em docs/no_go_zones.json (${body.zones}).`);
   } catch (err) {
-    setStatus(`Could not save the areas: ${err.message}`, "err");
+    setStatus(`Não foi possível guardar as áreas: ${BackendMessages.of(err)}`, "err");
   }
   refreshZoneState();
 }
@@ -1042,9 +1161,9 @@ let zoneStatus = null; // profile -> {built, up_to_date, reachable, ...}
 // Why a profile's routing data is not ready to plan with, or "" if it is.
 function zoneProblem(name, p) {
   const who = profileLabel(name);
-  if (!p.built) return `the routing data for ${who} has not been built yet`;
-  if (!p.up_to_date) return `the routing data for ${who} is older than the areas`;
-  if (p.reachable === false) return `nothing answers for ${who} on port ${p.host_port}`;
+  if (!p.built) return `os dados de encaminhamento de "${who}" ainda não foram construídos`;
+  if (!p.up_to_date) return `os dados de encaminhamento de "${who}" são mais antigos do que as áreas`;
+  if (p.reachable === false) return `nada responde por "${who}" na porta ${p.host_port}`;
   return "";
 }
 
@@ -1059,7 +1178,7 @@ async function refreshZoneState() {
   } catch (err) {
     zoneStatus = null;
     box.className = "err";
-    box.textContent = `Cannot read the state of the routing data: ${err.message}`;
+    box.textContent = `Não foi possível ler o estado dos dados de encaminhamento: ${BackendMessages.of(err)}`;
     return null;
   }
   zoneStatus = status.profiles || {};
@@ -1068,7 +1187,7 @@ async function refreshZoneState() {
   const applyBtn = document.getElementById("applyZones");
   if (!profiles.length) {
     box.className = "ok";
-    box.textContent = "No area is closed to anyone: every truck uses the default routing profile, and the plan needs nothing else.";
+    box.textContent = "Nenhuma área está fechada a alguém: todos os camiões usam o perfil de encaminhamento por omissão, e o plano não precisa de mais nada.";
     applyBtn.hidden = true;
     return zoneStatus;
   }
@@ -1080,15 +1199,15 @@ async function refreshZoneState() {
     const who = esc(profileLabel(name));
     if (!p.built) {
       worst = "stale";
-      lines.push(`The routing data for ${who} has not been built yet, so the ${p.zones} area(s) closed to them are not enforced. Apply to build it.`);
+      lines.push(`Os dados de encaminhamento de "${who}" ainda não foram construídos, por isso as ${p.zones} área(s) que lhes estão fechadas não são respeitadas. Carregue em Aplicar para os construir.`);
     } else if (!p.up_to_date) {
       worst = "stale";
-      lines.push(`The routing data for ${who} is older than the areas above: it still avoids the previous ones. Apply to rebuild it.`);
+      lines.push(`Os dados de encaminhamento de "${who}" são mais antigos do que as áreas acima: continuam a evitar as anteriores. Carregue em Aplicar para os reconstruir.`);
     } else if (p.reachable === false) {
       worst = "err";
-      lines.push(`The routing data for ${who} is up to date, but nothing answers on port ${p.host_port}. Apply to start its container.`);
+      lines.push(`Os dados de encaminhamento de "${who}" estão atualizados, mas nada responde na porta ${p.host_port}. Carregue em Aplicar para arrancar o contentor.`);
     } else {
-      lines.push(`${p.zones} area(s) closed to ${who}, routing data up to date and served${p.built_at ? ` (built ${esc(p.built_at)})` : ""}.`);
+      lines.push(`${p.zones} área(s) fechada(s) a "${who}", dados de encaminhamento atualizados e a ser servidos${p.built_at ? ` (construídos em ${esc(p.built_at)})` : ""}.`);
     }
   }
   box.className = worst;
@@ -1111,7 +1230,7 @@ async function pollBuild(announce = true) {
     state = await res.json();
     if (!res.ok) throw new Error(state.error || res.status);
   } catch (err) {
-    setStatus(`Cannot follow the build: ${err.message}`, "err");
+    setStatus(`Não foi possível acompanhar a construção: ${BackendMessages.of(err)}`, "err");
     stopBuildPolling();
     return;
   }
@@ -1119,7 +1238,7 @@ async function pollBuild(announce = true) {
     document.getElementById("applyZones").disabled = true;
     const box = document.getElementById("zoneState");
     box.className = "busy";
-    box.textContent = `Applying the areas to the routing data (started ${state.started_at})…`;
+    box.textContent = `A aplicar as áreas aos dados de encaminhamento (início às ${state.started_at})…`;
     if (!applyPoll) applyPoll = setInterval(pollBuild, 2000);
     return;
   }
@@ -1127,9 +1246,9 @@ async function pollBuild(announce = true) {
   stopBuildPolling();
   if (state.exit_code === null || !(announce || wasPolling)) return;
   if (state.exit_code === 0) {
-    setStatus("Areas applied: the routing data is current and served.", "ok");
+    setStatus("Áreas aplicadas: os dados de encaminhamento estão atualizados e a ser servidos.", "ok");
   } else {
-    setStatus(`Applying the areas failed (exit ${state.exit_code}).`, "err");
+    setStatus(`A aplicação das áreas falhou (código de saída ${state.exit_code}).`, "err");
   }
   refreshZoneState();
 }
@@ -1147,11 +1266,11 @@ async function applyZones() {
     const body = await res.json();
     if (!res.ok && res.status !== 409) throw new Error(body.error || res.status);
   } catch (err) {
-    setStatus(`Cannot apply the areas: ${err.message}`, "err");
+    setStatus(`Não foi possível aplicar as áreas: ${BackendMessages.of(err)}`, "err");
     document.getElementById("applyZones").disabled = false;
     return;
   }
-  setStatus("Applying the areas to the routing data…", "busy");
+  setStatus("A aplicar as áreas aos dados de encaminhamento…", "busy");
   pollBuild();
 }
 
@@ -1172,7 +1291,7 @@ function startDrawing() {
     line: L.polyline([], { color: "#b91c1c", weight: 2, dashArray: "5 4" }).addTo(zoneLayer),
   };
   setDrawing(true);
-  setStatus("Click on the map to place the corners of the area, then Finish.");
+  setStatus("Carregue no mapa para colocar os vértices da área e depois em Terminar.");
 }
 
 function addDrawingPoint(lat, lng) {
@@ -1191,7 +1310,7 @@ function cancelDrawing() {
 function finishDrawing() {
   if (!drawing) return;
   if (drawing.points.length < 3) {
-    setStatus("An area needs at least three corners.", "err");
+    setStatus("Uma área precisa de pelo menos três vértices.", "err");
     return;
   }
   const id = zoneList.reduce((max, z) => Math.max(max, z.id), 0) + 1;
@@ -1200,7 +1319,7 @@ function finishDrawing() {
   // exactly what.
   zoneList.push({
     id,
-    name: `Zone ${id}`,
+    name: `Zona ${id}`,
     blocked_profiles: ZONE_PROFILES.slice(),
     polygon: drawing.points,
   });
@@ -1235,7 +1354,7 @@ if (ZONES_ENABLED) {
 // the panel — and both end up here.
 function addOperation(lat, lng) {
   const op = {
-    id: nextOpId++,
+    id: freeOpId(),
     lat,
     lng,
     type: opTypeSel.value,
@@ -1243,18 +1362,33 @@ function addOperation(lat, lng) {
     priority: 0,
   };
   operations.push(op);
-  routeLayer.clearLayers();
+  // Kept in the order of the names, which after a name has been freed
+  // and handed out again is not the order they were added in. The
+  // list is read by looking a name up in it, so the list is where the
+  // names run in order; where an operation was typed is nobody's
+  // question. Everything else reads this array in whatever order it
+  // is in, so sorting it here is the whole of it.
+  operations.sort((a, b) => a.id - b.id);
+  clearPlan();
   renderPoints();
   return op;
 }
 
 map.on("click", (e) => {
-  // While an area is being drawn the map places its corners instead.
+  // Drawing an area is a mode of its own and outranks everything: while
+  // it is on, the map places the corners of that area and nothing else.
   if (drawing) return addDrawingPoint(e.latlng.lat, e.latlng.lng);
-  // On the Extra job tab a click moves the job being asked about. That
-  // tab is about a plan that is already made, and adding an operation
-  // to the day would throw away the very thing the question is about.
-  if (onExtraTab()) return setExtraJob(e.latlng.lat, e.latlng.lng);
+  // Otherwise a click belongs to the Plan tab, and to whichever of its
+  // two steps is on screen: the day is added to where the day is put
+  // together, and the extra job is moved where a plan is being read.
+  // On the other tabs the map is there to be looked at rather than
+  // pointed at — the areas, the prices and the fleet are all edited in
+  // the panel — so a click does nothing at all. It used to fall through
+  // to whichever of the two the Plan tab had been left on, which meant
+  // reading the Costs tab and touching the map quietly added an
+  // operation to a day that was not even on screen.
+  if (!onPlanTab()) return;
+  if (planStep === "solutions") return setExtraJob(e.latlng.lat, e.latlng.lng);
   addOperation(e.latlng.lat, e.latlng.lng);
 });
 
@@ -1267,7 +1401,7 @@ function addOperationFromInputs() {
   const lng = Number(newLngInput.value);
   const filled = newLatInput.value.trim() !== "" && newLngInput.value.trim() !== "";
   if (!filled || !isFinite(lat) || !isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
-    setStatus("New operation: latitude must be -90..90 and longitude -180..180.", "err");
+    setStatus("Nova operação: a latitude tem de estar entre -90 e 90 e a longitude entre -180 e 180.", "err");
     return;
   }
   const op = addOperation(lat, lng);
@@ -1275,7 +1409,7 @@ function addOperationFromInputs() {
   newLngInput.value = "";
   newLatInput.focus();
   map.panTo([lat, lng]);
-  setStatus(`Operation #${op.id} added at ${lat.toFixed(5)}, ${lng.toFixed(5)}.`);
+  setStatus(`Operação ${M.labelOf(op.id)} acrescentada em ${lat.toFixed(5)}, ${lng.toFixed(5)}.`);
 }
 
 document.getElementById("addOp").onclick = addOperationFromInputs;
@@ -1335,7 +1469,7 @@ function decodeCsv(buffer) {
 function readCsvFile(file) {
   file.arrayBuffer()
     .then((buf) => showCsvReport(M.parseOperationsCsv(decodeCsv(buf)), file.name))
-    .catch((e) => setStatus(`${file.name} could not be read: ${e.message}`, "err"));
+    .catch((e) => setStatus(`Não foi possível ler ${file.name}: ${e.message}`, "err"));
 }
 
 // An import replaces the day, so the file is read and reported before
@@ -1354,21 +1488,21 @@ function showCsvReport({ operations: read, problems }, name) {
   const head = document.createElement("div");
   head.className = "head";
   head.textContent = read.length
-    ? `${name}: ${plural(read.length, "operation")} read` +
-      (problems.length ? `, ${plural(problems.length, "row")} left out` : "")
-    : `${name}: nothing could be read from it.`;
+    ? `${name}: ${plural(read.length, "operação lida", "operações lidas")}` +
+      (problems.length ? `, ${plural(problems.length, "linha excluída", "linhas excluídas")}` : "")
+    : `${name}: não foi possível ler nada deste ficheiro.`;
   csvReport.appendChild(head);
 
   for (const p of problems.slice(0, CSV_PROBLEMS_SHOWN)) {
     const item = document.createElement("div");
     item.className = "err-item";
-    item.textContent = p.line ? `Line ${p.line}: ${p.text}` : p.text;
+    item.textContent = p.line ? `Linha ${p.line}: ${p.text}` : p.text;
     csvReport.appendChild(item);
   }
   if (problems.length > CSV_PROBLEMS_SHOWN) {
     const rest = document.createElement("div");
     rest.className = "err-item";
-    rest.textContent = `… and ${problems.length - CSV_PROBLEMS_SHOWN} more.`;
+    rest.textContent = `… e mais ${problems.length - CSV_PROBLEMS_SHOWN}.`;
     csvReport.appendChild(rest);
   }
 
@@ -1378,13 +1512,13 @@ function showCsvReport({ operations: read, problems }, name) {
     const go = document.createElement("button");
     go.className = "primary";
     go.textContent = operations.length
-      ? `Replace today's ${plural(operations.length, "operation")}`
-      : `Load ${plural(read.length, "operation")}`;
+      ? `Substituir as ${plural(operations.length, "operação de hoje", "operações de hoje")}`
+      : `Carregar ${plural(read.length, "operação", "operações")}`;
     go.onclick = () => { applyCsv(read); hideCsvReport(); };
     bar.appendChild(go);
   }
   const stop = document.createElement("button");
-  stop.textContent = read.length ? "Cancel" : "Close";
+  stop.textContent = read.length ? "Cancelar" : "Fechar";
   stop.onclick = hideCsvReport;
   bar.appendChild(stop);
   csvReport.appendChild(bar);
@@ -1395,16 +1529,19 @@ function hideCsvReport() {
   csvReport.innerHTML = "";
 }
 
-function plural(n, word) {
-  return `${n} ${word}${n === 1 ? "" : "s"}`;
+// Portuguese plurals are not a suffix, so both forms are given.
+function plural(n, one, many) {
+  return `${n} ${n === 1 ? one : many}`;
 }
 
 // The file is the day, not an addition to it: the list is replaced and
 // the numbering starts again, so #3 on the map is the third operation
 // of the file and a row can be found in the spreadsheet it came from.
 function applyCsv(read) {
-  nextOpId = 1;
-  operations = read.map((op) => Object.assign({ id: nextOpId++ }, op));
+  // The file is the day, so the names start again from A and a row can
+  // be found in the spreadsheet it came from by counting down it.
+  let id = 1;
+  operations = read.map((op) => Object.assign({ id: id++ }, op));
   clearPlan();
   renderPoints();
   const bounds = L.latLngBounds(operations.map((op) => [op.lat, op.lng]));
@@ -1415,7 +1552,7 @@ function applyCsv(read) {
   // out over the file, so the size is taken again first.
   map.invalidateSize({ animate: false });
   map.fitBounds(bounds, { padding: [40, 40] });
-  setStatus(`${plural(operations.length, "operation")} loaded from the file.`, "ok");
+  setStatus(`${plural(operations.length, "operação carregada", "operações carregadas")} do ficheiro.`, "ok");
 }
 
 // The list written back in the format it is read in, so a day can go
@@ -1426,14 +1563,14 @@ document.getElementById("exportCsv").onclick = () => {
     new Blob([M.operationsToCsv(operations)], { type: "text/csv;charset=utf-8" }));
   const link = document.createElement("a");
   link.href = url;
-  link.download = operations.length ? "operations.csv" : "operations-template.csv";
+  link.download = operations.length ? "operacoes.csv" : "modelo-operacoes.csv";
   document.body.appendChild(link);
   link.click();
   link.remove();
   setTimeout(() => URL.revokeObjectURL(url), 0);
   setStatus(operations.length
-    ? `${plural(operations.length, "operation")} written to operations.csv.`
-    : "An empty operations-template.csv written to fill in.", "ok");
+    ? `${plural(operations.length, "operação escrita", "operações escritas")} para operacoes.csv.`
+    : "Foi escrito um modelo-operacoes.csv vazio para preencher.", "ok");
 };
 
 // Dropping the file on the window does the same as picking it. Both
@@ -1486,15 +1623,14 @@ function renderPoints(unassignedOps = new Set(), opColor = {}, partialOps = new 
 
   L.marker([depot.lat, depot.lng], { icon: companyPin(), zIndexOffset: 1000, interactive: true })
     .addTo(markerLayer)
-    .bindTooltip("<b>Company</b><span class='sub'>fixed — trucks start and end here</span>", { direction: "top" });
+    .bindTooltip("<b>Empresa</b><span class='sub'>fixa — os camiões começam e acabam aqui</span>", { direction: "top" });
   const site = document.createElement("li");
   site.className = "company";
   site.innerHTML =
-    `<span class="chip" style="--c:${COMPANY_COLOR}"><svg width="12" height="12" viewBox="0 0 16 16">` +
-    `${glyphGroup(COMPANY_GLYPH, 0, 0, 1, 1.5)}</svg></span>` +
-    `<span class="name">Company</span>` +
+    chip(COMPANY_STYLE) +
+    `<span class="name">Empresa</span>` +
     `<span class="coords">${depot.lat.toFixed(5)}, ${depot.lng.toFixed(5)}</span>` +
-    `<span class="fixed" title="trucks start and end here">fixed</span>`;
+    `<span class="fixed" title="os camiões começam e acabam aqui">fixa</span>`;
   list.appendChild(site);
 
   for (const op of operations) {
@@ -1502,13 +1638,13 @@ function renderPoints(unassignedOps = new Set(), opColor = {}, partialOps = new 
     const partial = partialOps.has(op.id);
     const color = unassigned ? UNASSIGNED_COLOR : (opColor[op.id] || OP_STYLE[op.type].color);
     const state = unassigned
-      ? "not assigned to any truck"
+      ? "não atribuída a nenhum camião"
       : partial
-        ? "partly done: the rest is left for another day"
-        : `priority ${op.priority}`;
+        ? "feita em parte: o resto fica para outro dia"
+        : `prioridade ${op.priority}`;
     const marker = L.marker([op.lat, op.lng], { icon: opPin(op, color), riseOnHover: true })
       .addTo(markerLayer)
-      .bindTooltip(`<b>#${op.id}</b> ${esc(M.describe(op))}` +
+      .bindTooltip(`<b>${M.labelOf(op.id)}</b> ${esc(M.describe(op))}` +
         `<span class="sub">${state}</span>`,
         { direction: "top" });
     marker.on("mouseover", () => setHot(op.id, true));
@@ -1526,7 +1662,7 @@ function renderPoints(unassignedOps = new Set(), opColor = {}, partialOps = new 
     li.className = "empty";
     li.style.border = "0";
     li.style.background = "none";
-    li.textContent = "No operations yet — click the map, enter coordinates or import a CSV.";
+    li.textContent = "Ainda não há operações — carregue no mapa, escreva coordenadas ou importe um CSV.";
     list.appendChild(li);
   }
 
@@ -1546,11 +1682,11 @@ function opRow(op, color, unassigned, partial) {
   tag.style.setProperty("--rc", color);
 
   const mark = document.createElement("span");
-  mark.innerHTML = chip(op.type, unassigned ? UNASSIGNED_COLOR : OP_STYLE[op.type].color);
+  mark.innerHTML = chip(OP_STYLE[op.type], unassigned ? UNASSIGNED_COLOR : null);
   const id = document.createElement("span");
   id.className = "id";
-  id.textContent = partial ? `#${op.id}*` : `#${op.id}`;
-  if (partial) id.title = "partly done: some of its movements are left for another day";
+  id.textContent = partial ? `${M.labelOf(op.id)}*` : M.labelOf(op.id);
+  if (partial) id.title = "feita em parte: alguns dos seus movimentos ficam para outro dia";
 
   const type = document.createElement("select");
   type.className = "type";
@@ -1558,17 +1694,20 @@ function opRow(op, color, unassigned, partial) {
   const size = document.createElement("select");
   fillSizeSelect(size, op.size);
   size.disabled = !M.OPERATION_TYPES[op.type].needsSize;
-  type.onchange = () => { op.type = type.value; routeLayer.clearLayers(); renderPoints(); };
-  size.onchange = () => { op.size = Number(size.value); routeLayer.clearLayers(); renderPoints(); };
+  type.onchange = () => { op.type = type.value; clearPlan(); renderPoints(); };
+  size.onchange = () => { op.size = Number(size.value); clearPlan(); renderPoints(); };
 
   const prio = document.createElement("input");
   prio.type = "number"; prio.min = "0"; prio.max = "100"; prio.value = op.priority;
-  prio.title = "priority (0–100, higher is dropped last)";
-  prio.oninput = () => { op.priority = Math.max(0, Math.min(100, Number(prio.value) || 0)); };
+  prio.title = "prioridade (0–100, quanto maior mais tarde é descartada)";
+  prio.oninput = () => {
+    op.priority = Math.max(0, Math.min(100, Number(prio.value) || 0));
+    clearPlan();
+  };
 
   li.append(tag, mark.firstElementChild, id, type, size, prio, removeButton(() => {
     operations = operations.filter((x) => x.id !== op.id);
-    routeLayer.clearLayers();
+    clearPlan();
     renderPoints();
   }));
   return li;
@@ -1578,7 +1717,7 @@ function removeButton(onClick) {
   const btn = document.createElement("button");
   btn.className = "x";
   btn.innerHTML = "&times;";
-  btn.title = "remove";
+  btn.title = "remover";
   btn.onclick = onClick;
   return btn;
 }
@@ -1598,9 +1737,35 @@ function renderProblems() {
   return errors;
 }
 
+// Which of the two steps of the Plan tab is on screen. The day is put
+// together in "manage" and the plans found for it are read in
+// "solutions"; solving moves from one to the other, and the footer
+// moves back. Nothing about the solving itself knows about this: the
+// same elements are filled by the same code either way.
+let planStep = "manage";
+
+function showStep(name) {
+  planStep = name;
+  document.getElementById("step-manage").hidden = name !== "manage";
+  document.getElementById("step-solutions").hidden = name !== "solutions";
+  document.getElementById("actions-manage").hidden = name !== "manage";
+  document.getElementById("actions-solutions").hidden = name !== "solutions";
+  // The panel is one scroller for both steps, so without this a step
+  // opens wherever the other one was left.
+  document.getElementById("tab-solve").scrollTop = 0;
+  if (name === "solutions") initExtraClock();
+  updateSolveButton();
+}
+
 function updateSolveButton() {
   const total = M.TYPE_ORDER.reduce((n, t) => n + (fleet[t] || 0), 0);
   document.getElementById("solve").disabled = operations.length === 0 || total === 0;
+  document.getElementById("manageCount").textContent = operations.length
+    ? plural(operations.length, "operação", "operações")
+    : "";
+  document.getElementById("solutionCount").textContent = havePlan()
+    ? plural(operations.length, "operação", "operações")
+    : "";
 }
 
 // How much earlier each truck type may go out, one row per type like
@@ -1617,7 +1782,7 @@ function renderEarlyStart() {
     name.textContent = M.TRUCK_TYPES[type].label;
     const unit = document.createElement("span");
     unit.className = "unit";
-    unit.textContent = "min earlier";
+    unit.textContent = "min mais cedo";
     const input = document.createElement("input");
     input.type = "number"; input.min = "0"; input.step = "15";
     input.id = `early-${type}`;
@@ -1639,14 +1804,18 @@ function renderFleet() {
     const name = document.createElement("span");
     name.className = "name";
     name.textContent = M.TRUCK_TYPES[type].label;
-    name.title = `allowed loads: ${M.TRUCK_TYPES[type].rules.join(" | ")}`;
+    name.title = `cargas permitidas: ${M.TRUCK_TYPES[type].rules.join(" | ")}`;
 
     const countLabel = document.createElement("span");
     countLabel.className = "unit";
-    countLabel.textContent = "trucks";
+    countLabel.textContent = "camiões";
     const count = document.createElement("input");
     count.type = "number"; count.min = "0"; count.max = "20"; count.value = fleet[type];
-    count.oninput = () => { fleet[type] = Math.max(0, Math.floor(Number(count.value) || 0)); renderProblems(); updateSolveButton(); renderChicoLabels(); };
+    count.oninput = () => {
+      fleet[type] = Math.max(0, Math.floor(Number(count.value) || 0));
+      clearPlan();
+      renderProblems(); updateSolveButton(); renderChicoLabels();
+    };
 
     li.append(name, countLabel, count);
     list.appendChild(li);
@@ -1659,7 +1828,7 @@ function renderFleet() {
     const name = document.createElement("span");
     name.className = "name";
     name.textContent = c.label;
-    name.title = `attaches to a ${M.TRUCK_TYPES[c.attachesTo].label.toLowerCase()}: the truck then carries ${c.extraLoads + 1} allowed loads at once`;
+    name.title = `atrela a um ${M.TRUCK_TYPES[c.attachesTo].label.toLowerCase()}: o camião passa a levar ${c.extraLoads + 1} cargas permitidas de uma vez`;
 
     const countLabel = document.createElement("span");
     countLabel.className = "unit";
@@ -1667,9 +1836,13 @@ function renderFleet() {
     count.type = "number"; count.min = "0"; count.max = "20"; count.value = chicos[key];
     const refreshLabel = () => {
       const trucks = fleet[c.attachesTo] || 0;
-      countLabel.textContent = chicos[key] > trucks ? `chicos (only ${trucks} truck${trucks === 1 ? "" : "s"})` : "chicos";
+      countLabel.textContent = chicos[key] > trucks ? `chicos (só ${trucks} ${trucks === 1 ? "camião" : "camiões"})` : "chicos";
     };
-    count.oninput = () => { chicos[key] = Math.max(0, Math.floor(Number(count.value) || 0)); refreshLabel(); };
+    count.oninput = () => {
+      chicos[key] = Math.max(0, Math.floor(Number(count.value) || 0));
+      clearPlan();
+      refreshLabel();
+    };
     refreshLabel();
     li.dataset.chico = key;
     li._refresh = refreshLabel;
@@ -1692,20 +1865,21 @@ function renderContainers() {
     unit.className = "unit";
     const count = document.createElement("input");
     count.type = "number"; count.min = "0"; count.max = "999";
-    count.placeholder = "any";
+    count.placeholder = "qualquer";
     count.value = stock[size] === null ? "" : stock[size];
     const refreshLabel = () => {
       const available = M.stockFor(stock, size);
       const needed = M.stockUsers(operations, size).length;
       unit.textContent = available !== null && needed > available
-        ? `in stock (${needed} asked for)`
-        : "in stock";
+        ? `em stock (${needed} pedidos)`
+        : "em stock";
     };
     // An empty box is "not tracked": the yard always has one.
     count.oninput = () => {
       stock[size] = count.value.trim() === ""
         ? null
         : Math.max(0, Math.floor(Number(count.value) || 0));
+      clearPlan();
       refreshLabel();
       renderProblems();
     };
@@ -1772,8 +1946,16 @@ function readSearch() {
   };
 }
 
+// Portugal writes the decimal with a comma and the currency after
+// the amount: "34,50 €".
 function money(value) {
-  return `${CURRENCY}${value.toFixed(2)}`;
+  return `${dec(value, 2)} ${CURRENCY}`;
+}
+
+// A number with a decimal comma. Display only — what is typed into
+// the boxes is left to the browser's own number inputs.
+function dec(value, digits) {
+  return Number(value).toFixed(digits).replace(".", ",");
 }
 
 // A plan drawn with the old prices would sit there looking current, so
@@ -1819,9 +2001,9 @@ function refreshCostHints() {
     .sort((a, b) => a[0] - b[0])
     .map(([seconds, types]) => {
       const fixed = M.solverEarlyStart(seconds, costs);
-      const km = dearest > 0 ? ` <span class="muted">(${(fixed / M.COST_SCALE).toFixed(1)} km of the dearest truck)</span>` : "";
-      const who = types.length === M.TYPE_ORDER.length ? "every truck" : types.join(", ");
-      return `<tr><td>Start ${fmtDuration(seconds)} early <span class="muted">(${esc(who)})</span></td>` +
+      const km = dearest > 0 ? ` <span class="muted">(${dec(fixed / M.COST_SCALE, 1)} km do camião mais caro)</span>` : "";
+      const who = types.length === M.TYPE_ORDER.length ? "todos os camiões" : types.join(", ");
+      return `<tr><td>Sair ${fmtDuration(seconds)} mais cedo <span class="muted">(${esc(who)})</span></td>` +
         `<td class="n">${esc(money(M.moneyForEarlyStart(seconds, costs)))}</td>` +
         `<td class="raw">${fixed}${km}</td></tr>`;
     })
@@ -1834,21 +2016,21 @@ function refreshCostHints() {
   const afternoonMoney = M.moneyForAfternoon(costs);
   const afternoonFixed = M.solverAfternoonFixed(costs);
   const afternoonKm = dearest > 0
-    ? ` <span class="muted">(${(afternoonFixed / M.COST_SCALE).toFixed(1)} km of the dearest truck)</span>`
+    ? ` <span class="muted">(${dec(afternoonFixed / M.COST_SCALE, 1)} km do camião mais caro)</span>`
     : "";
   const afternoonRows = afternoonMoney > 0
-    ? `<tr><td>Work the afternoon <span class="muted">(every truck)</span></td>` +
+    ? `<tr><td>Trabalhar de tarde <span class="muted">(todos os camiões)</span></td>` +
       `<td class="n">${esc(money(afternoonMoney))}</td>` +
       `<td class="raw">${afternoonFixed}${afternoonKm}</td></tr>`
     : "";
 
   const priced = M.VEHICLE_CONFIGS.some((cfg) => M.moneyPerKm(cfg.key, costs) > 0);
   const note = priced
-    ? `<span class="muted">The right-hand column is what VROOM is given: the same numbers rescaled, ` +
-      `since only their ratios decide which truck drives. A route also carries a small charge for its ` +
-      `driving time, the same on every truck, which the solver needs internally and which no plan can escape.</span>`
-    : `<span class="warn">Nothing costs anything, so every plan that does the same operations is worth ` +
-      `the same and the solver falls back on driving time and the fewest trucks. Price at least one truck.</span>`;
+    ? `<span class="muted">A coluna da direita é o que é entregue ao VROOM: os mesmos números noutra escala, ` +
+      `porque só as razões entre eles decidem que camião conduz. Cada rota leva ainda um pequeno encargo pelo ` +
+      `tempo de condução, igual em todos os camiões, de que o otimizador precisa internamente e a que nenhum plano escapa.</span>`
+    : `<span class="warn">Nada custa nada, por isso todos os planos que façam as mesmas operações valem ` +
+      `o mesmo e o otimizador recai no tempo de condução e no menor número de camiões. Dê preço a pelo menos um camião.</span>`;
 
   document.getElementById("costFormula").innerHTML =
     `<table>${rows}${earlyRows}${afternoonRows}</table>${note}`;
@@ -1868,7 +2050,7 @@ function renderCosts() {
     name.textContent = M.TRUCK_TYPES[type].label;
     const unit = document.createElement("span");
     unit.className = "unit";
-    unit.textContent = `${CURRENCY} per km`;
+    unit.textContent = `${CURRENCY} por km`;
     const input = document.createElement("input");
     input.type = "number"; input.min = "0"; input.step = "0.01";
     input.id = `costkm-${type}`;
@@ -1886,10 +2068,10 @@ function renderCosts() {
     const name = document.createElement("span");
     name.className = "name";
     name.textContent = c.label;
-    name.title = `attaches to a ${M.TRUCK_TYPES[c.attachesTo].label.toLowerCase()}`;
+    name.title = `atrela a um ${M.TRUCK_TYPES[c.attachesTo].label.toLowerCase()}`;
     const unit = document.createElement("span");
     unit.className = "unit";
-    unit.textContent = "x cost per km";
+    unit.textContent = "× custo por km";
     const input = document.createElement("input");
     input.type = "number"; input.min = "0"; input.step = "0.05";
     input.id = `chicomul-${key}`;
@@ -1922,7 +2104,7 @@ function renderCosts() {
 document.getElementById("resetCosts").onclick = () => {
   renderCosts();
   onCostChange();
-  setStatus("Costs back to the values of docs/waste_defaults.json.");
+  setStatus("Custos de volta aos valores de docs/waste_defaults.json.");
 };
 
 // ---------- VROOM request ----------
@@ -2114,11 +2296,11 @@ function showSolution(run) {
   const opColor = {};
   const cards = [];
   const shifts = shiftsOfPlan();
-  const { truckList, trucksUsed, unassignedOps, partialOps } = st;
+  const { truckList, unassignedOps, partialOps } = st;
 
   truckList.forEach((truck, i) => {
     const color = COLORS[i % COLORS.length];
-    const typeLabel = (M.TRUCK_TYPES[truck.type] || { label: truck.type || "vehicle" }).label.toLowerCase();
+    const typeLabel = (M.TRUCK_TYPES[truck.type] || { label: truck.type || "veículo" }).label.toLowerCase();
     const name = `${typeLabel} ${truck.k}`;
     const items = [];
     const chicoShifts = [];
@@ -2132,31 +2314,31 @@ function showSolution(run) {
     shifts.forEach((shift, j) => {
       if (j > 0) {
         items.push(`<li class="company"><span class="t">${fmtClock(lastLunch.start)}</span>` +
-                   `<span>lunch at the company until ${fmtClock(lastLunch.end)}</span></li>`);
+                   `<span>almoço na empresa até às ${fmtClock(lastLunch.end)}</span></li>`);
       }
       const r = truck.byShift[shift.key];
       if (!r) {
-        items.push(`<li class="company"><span class="t"></span><span>stays at the company${shifts.length > 1 ? ` in the ${shift.label}` : ""}</span></li>`);
+        items.push(`<li class="company"><span class="t"></span><span>fica na empresa${shifts.length > 1 ? ` de ${shift.label}` : ""}</span></li>`);
         return;
       }
       const info = vehicleInfo[r.vehicle] || {};
       if (info.chico) chicoShifts.push(shift.label);
       if (info.early > 0) earlyBy = info.early;
-      const withChico = info.chico ? " with the chico" : "";
+      const withChico = info.chico ? " com o chico" : "";
       // An early start is worth spelling out on the line it happens:
       // it is the one thing on a route the planner is paying for
       // besides the road.
       const early = info.early > 0
-        ? `, ${fmtDuration(info.early)} before the working day (${esc(money(M.moneyForEarlyStart(info.early, lastCosts)))})`
+        ? `, ${fmtDuration(info.early)} antes do dia de trabalho (${esc(money(M.moneyForEarlyStart(info.early, lastCosts)))})`
         : "";
       for (const s of r.steps) {
         const clock = `<span class="t">${fmtClock(s.arrival)}</span>`;
-        if (s.type === "start") { items.push(`<li class="company">${clock}<span>leave the company${withChico}${early}</span></li>`); continue; }
-        if (s.type === "end") { items.push(`<li class="company">${clock}<span>back at the company</span></li>`); continue; }
-        if (s.type === "break") { items.push(`<li class="company">${clock}<span>break</span></li>`); continue; }
+        if (s.type === "start") { items.push(`<li class="company">${clock}<span>sai da empresa${withChico}${early}</span></li>`); continue; }
+        if (s.type === "end") { items.push(`<li class="company">${clock}<span>de volta à empresa</span></li>`); continue; }
+        if (s.type === "break") { items.push(`<li class="company">${clock}<span>pausa</span></li>`); continue; }
         const text = s.description || stepInfo[s.id] || `${s.type} ${s.id}`;
         const opId = M.opIdOfStep(s.id);
-        const atCompany = /at company/.test(text);
+        const atCompany = /na empresa/.test(text);
         if (!atCompany) { clientStops++; opColor[opId] = opColor[opId] || color; }
         items.push(`<li class="${atCompany ? "company" : ""}">${clock}<span>${esc(text)}</span></li>`);
       }
@@ -2171,36 +2353,46 @@ function showSolution(run) {
       }
     });
 
-    const km = distanceKnown ? ` · ${(distance / 1000).toFixed(1)} km` : "";
+    const km = distanceKnown ? ` · ${dec(distance / 1000, 1)} km` : "";
     let chicoNote = "";
     if (chicoShifts.length) {
       const wholeDay = shifts.length === 1 || chicoShifts.length === shifts.length;
-      chicoNote = wholeDay ? " · chico" : ` · chico in the ${chicoShifts.join(" and ")}`;
+      chicoNote = wholeDay ? " · chico" : ` · chico de ${chicoShifts.join(" e de ")}`;
     }
-    const earlyNote = earlyBy > 0 ? ` · ${fmtDuration(earlyBy)} early` : "";
-    cards.push(`<details class="route" style="--rc:${color}"${trucksUsed <= 3 ? " open" : ""}>
+    const earlyNote = earlyBy > 0 ? ` · ${fmtDuration(earlyBy)} mais cedo` : "";
+    // Closed to start with, however few trucks went out: the summary
+    // above is what a plan is read on, and a truck's stops are opened
+    // when there is a reason to look at that one truck.
+    cards.push(`<details class="route" style="--rc:${color}">
       <summary><span class="swatch"></span><span class="name">${esc(name)}</span>
-        <span class="meta">${clientStops} stop${clientStops === 1 ? "" : "s"} · ${fmtDuration(time)}${km}${chicoNote}${earlyNote}</span>
+        <span class="meta">${clientStops} ${clientStops === 1 ? "paragem" : "paragens"} · ${fmtDuration(time)}${km}${chicoNote}${earlyNote}</span>
       </summary>
       <ol>${items.join("")}</ol></details>`);
   });
 
-  const unassignedTitle = unassignedOps.size ? ` title="operations ${[...unassignedOps].sort((a, b) => a - b).join(", ")}"` : "";
+  // Named in the order the names run, which is the order the list is in.
+  const named = (ids) => [...ids].sort((a, b) => a - b).map(M.labelOf).join(", ");
+  const unassignedTitle = unassignedOps.size ? ` title="operações ${named(unassignedOps)}"` : "";
   const partialNote = partialOps.size
-    ? `<span class="v muted" style="display:inline;font-size:12px" title="operations ${[...partialOps].sort((a, b) => a - b).join(", ")}: partly done"> +${partialOps.size} partly</span>`
+    ? `<span class="v muted" style="display:inline;font-size:12px" title="operações ${named(partialOps)}: feitas em parte"> +${partialOps.size} em parte</span>`
     : "";
   document.getElementById("summary").innerHTML = `
     <div class="stats">
-      <div><span class="k">Trucks</span><span class="v">${st.trucksUsed}<span class="v muted" style="display:inline;font-size:12px"> / ${st.trucksTotal}</span></span></div>
+      <div><span class="k">Camiões</span><span class="v">${st.trucksUsed}<span class="v muted" style="display:inline;font-size:12px"> / ${st.trucksTotal}</span></span></div>
       <div><span class="k">Chicos</span><span class="v">${st.chicosUsed}<span class="v muted" style="display:inline;font-size:12px"> / ${st.chicosTotal}</span></span></div>
-      <div><span class="k">Driving</span><span class="v">${st.duration != null ? fmtDuration(st.duration) : "–"}</span></div>
-      <div title="driving plus every minute spent on site handling containers"><span class="k">Total time</span><span class="v">${st.totalTime != null ? fmtDuration(st.totalTime) : "–"}</span></div>
-      <div><span class="k">Distance</span><span class="v">${st.distance != null ? (st.distance / 1000).toFixed(1) + " km" : "–"}</span></div>
-      <div${unassignedTitle}><span class="k">Unassigned</span><span class="v ${unassignedOps.size ? "bad" : "muted"}">${unassignedOps.size}${partialNote}</span></div>
+      <div><span class="k">Condução</span><span class="v">${st.duration != null ? fmtDuration(st.duration) : "–"}</span></div>
+      <div title="condução mais cada minuto passado no local a manobrar contentores"><span class="k">Tempo total</span><span class="v">${st.totalTime != null ? fmtDuration(st.totalTime) : "–"}</span></div>
+      <div><span class="k">Distância</span><span class="v">${st.distance != null ? dec(st.distance / 1000, 1) + " km" : "–"}</span></div>
+      <div${unassignedTitle}><span class="k">Por atribuir</span><span class="v ${unassignedOps.size ? "bad" : "muted"}">${unassignedOps.size}${partialNote}</span></div>
     </div>
     ${cards.join("")}`;
 
   renderPoints(unassignedOps, opColor, partialOps);
+  // The extra job lives under this plan and reads it: what is left of
+  // the day at the hour on its clock, and its own pin, which
+  // renderPoints has just cleared off the marker layer.
+  renderNowState();
+  placeExtraMarker();
   const drawn = routeLayer.getLayers();
   if (drawn.length) {
     map.fitBounds(L.featureGroup(drawn).getBounds(), { padding: [40, 40] });
@@ -2217,26 +2409,26 @@ function showSolution(run) {
 // simply takes no part in that row's comparison.
 const SCENARIO_METRICS = [
   {
-    label: "Trucks",
+    label: "Camiões",
     get: (st) => st.trucksUsed,
     show: (st) => `${st.trucksUsed}<small> / ${st.trucksTotal}</small>`,
     // A truck is a truck: "+33%" says nothing a plain "+1" does not.
     delta: (d) => (d > 0 ? `+${d}` : `${d}`),
   },
   {
-    label: "Driving",
+    label: "Condução",
     get: (st) => st.duration ?? null,
     show: (st) => (st.duration != null ? fmtDuration(st.duration) : "–"),
   },
   {
-    label: "Total time",
+    label: "Tempo total",
     get: (st) => st.totalTime ?? null,
     show: (st) => (st.totalTime != null ? fmtDuration(st.totalTime) : "–"),
   },
   {
-    label: "Distance",
+    label: "Distância",
     get: (st) => st.distance ?? null,
-    show: (st) => (st.distance != null ? `${(st.distance / 1000).toFixed(1)}<small> km</small>` : "–"),
+    show: (st) => (st.distance != null ? `${dec(st.distance / 1000, 1)}<small> km</small>` : "–"),
   },
 ];
 
@@ -2245,7 +2437,7 @@ const SCENARIO_METRICS = [
 // never a rounded-down "+0%" that would read as a tie when it is not.
 function scenarioDelta(metric, value, best) {
   if (value == null || best == null) return "";
-  if (value === best) return "best";
+  if (value === best) return "melhor";
   if (metric.delta) return metric.delta(value - best);
   if (best === 0) return "";
   const pct = ((value - best) / best) * 100;
@@ -2274,16 +2466,16 @@ function renderScenarios() {
     const on = run.scenario.key === activeScenario;
     const label = `<span class="label">${esc(run.scenario.label)}` +
       (run.stats && run.stats.unassignedOps.size
-        ? `<span class="state err">${run.stats.unassignedOps.size} left out</span>`
+        ? `<span class="state err">${run.stats.unassignedOps.size} de fora</span>`
         : "") + `</span>`;
     if (!run.stats) {
       const state = run.error ? `<span class="state err">${esc(run.error)}</span>`
-                              : `<span class="state">planning…</span>`;
+                              : `<span class="state">a planear…</span>`;
       return `<button class="scen" disabled>${label}${state}</button>`;
     }
     const cells = SCENARIO_METRICS.map((m, i) => {
       const d = scenarioDelta(m, m.get(run.stats), best[i]);
-      const cls = d === "best" ? "best" : "";
+      const cls = d === "melhor" ? "best" : "";
       return `<span class="c"><b>${m.show(run.stats)}</b><i class="${cls}">${d}</i></span>`;
     }).join("");
     return `<button class="scen${on ? " active" : ""}" data-scenario="${esc(run.scenario.key)}"` +
@@ -2295,14 +2487,14 @@ function renderScenarios() {
   // which is not the same number when one of them failed.
   const pending = scenarioRuns.filter((r) => !r.stats && !r.error).length;
   const count = pending
-    ? `planning ${done.length + 1} of ${scenarioRuns.length}`
-    : `${done.length} plan${done.length === 1 ? "" : "s"}`;
+    ? `a planear ${done.length + 1} de ${scenarioRuns.length}`
+    : `${done.length} ${done.length === 1 ? "plano" : "planos"}`;
   const shown = scenarioRuns.find((r) => r.scenario.key === activeScenario);
   const hint = shown && shown.scenario.hint
     ? `<div class="scen-hint">${esc(shown.scenario.label)}: ${esc(shown.scenario.hint)}</div>` : "";
 
   box.innerHTML =
-    `<div class="scen-head"><span class="t">The same day, ${scenarioRuns.length} ways</span>` +
+    `<div class="scen-head"><span class="t">O mesmo dia, de ${scenarioRuns.length} maneiras</span>` +
     `<span class="n">${count}</span></div>` +
     `<div class="scen-table">` +
       `<div class="scen-hdr"><span></span>` +
@@ -2334,7 +2526,7 @@ function selectScenario(key) {
 function showRequestJson(run) {
   if (!M.SOLVER_DEFAULTS.show_request) return;
   document.getElementById("summary").insertAdjacentHTML("beforeend",
-    `<details class="raw"><summary>Request JSON (${esc(run.scenario.label)})</summary>` +
+    `<details class="raw"><summary>JSON do pedido (${esc(run.scenario.label)})</summary>` +
     `<pre>${esc(JSON.stringify(run.request, null, 1))}</pre></details>`);
 }
 
@@ -2348,6 +2540,10 @@ function clearPlan() {
   routeLayer.clearLayers();
   document.getElementById("scenarios").innerHTML = "";
   document.getElementById("summary").innerHTML = "";
+  // There is nothing left to read, so the step that reads it is not
+  // somewhere to be standing.
+  if (planStep === "solutions") showStep("manage");
+  else updateSolveButton();
 }
 
 // ---------- actions ----------
@@ -2363,11 +2559,23 @@ async function solveRequest(request) {
   });
   const text = await res.text();
   let body;
-  try { body = JSON.parse(text); } catch { body = { raw: text }; }
-  if (!res.ok || body.code) {
-    throw new Error(`solver error (${res.status}): ${body.error || body.raw || "unknown"}`);
+  try { body = JSON.parse(text); } catch { body = null; }
+  if (!res.ok || (body && body.code)) {
+    // What the solver says is English, and this is the one moment
+    // the planner most needs to read: backend_messages.js turns the
+    // messages VROOM and vroom-express actually produce into
+    // Portuguese, and passes anything it does not know through.
+    throw new Error(BackendMessages.solver(res.status, body, body ? "" : text));
   }
+  if (!body) throw new Error("O otimizador respondeu algo que não é JSON.");
   return body;
+}
+
+// Is there a plan to show? A plan is thrown away the moment anything
+// it was built from moves (see clearPlan and its callers), so one
+// still being here is the whole of "nothing has changed since".
+function havePlan() {
+  return scenarioRuns.some((r) => r.stats);
 }
 
 // The day, planned once per scenario. The requests are built together,
@@ -2378,9 +2586,15 @@ async function solveRequest(request) {
 // it arrives anyway, so the first one is on the map about as soon as
 // the single plan of before would have been.
 document.getElementById("solve").onclick = async () => {
+  // The one button of this step, and it asks one question: show me the
+  // plan for this day. When the plan already on hand is still the plan
+  // for this day, that is the answer, and solving it again would cost
+  // a second and arrive at the same place.
+  if (havePlan()) return showStep("solutions");
+
   const errors = renderProblems();
   if (errors.length) {
-    setStatus("Fix the problems above before planning.", "err");
+    setStatus("Corrija os problemas acima antes de planear.", "err");
     return;
   }
   const times = readTimes();
@@ -2398,7 +2612,7 @@ document.getElementById("solve").onclick = async () => {
     return { scenario, request, stepInfo, vehicleInfo, solution: null, stats: null, error: null };
   });
   renderScenarios();
-  setStatus("Planning…", "busy");
+  setStatus("A planear…", "busy");
   document.getElementById("solve").disabled = true;
 
   // A restricted profile some vehicle is about to use must be served by
@@ -2413,17 +2627,23 @@ document.getElementById("solve").onclick = async () => {
       .map(([name, p]) => zoneProblem(name, p))
       .filter(Boolean);
     if (problems.length) {
-      setStatus(`Cannot plan: ${problems.join("; ")}. Open the Zones tab and Apply the areas.`, "err");
+      setStatus(`Não é possível planear: ${problems.join("; ")}. Abra o separador Zonas e carregue em Aplicar.`, "err");
       clearPlan();
       updateSolveButton();
       return;
     }
   }
 
+  // Everything that could keep the day from being planned has now had
+  // its say, so this is the moment the question changes from what to
+  // do to what it would cost. The rows are already on screen saying
+  // "a planear…", and they fill in as the answers come back.
+  showStep("solutions");
+
   try {
     for (const run of scenarioRuns) {
       const label = scenarioRuns.length > 1 ? ` (${run.scenario.label})` : "";
-      setStatus(`Planning…${label}`, "busy");
+      setStatus(`A planear…${label}`, "busy");
       try {
         run.solution = await solveRequest(run.request);
         run.stats = planStats(run);
@@ -2441,23 +2661,28 @@ document.getElementById("solve").onclick = async () => {
     }
     const failed = scenarioRuns.filter((r) => r.error);
     if (failed.length === scenarioRuns.length) {
-      setStatus(`Solver error: ${failed[0].error}`, "err");
+      setStatus(`Erro do otimizador: ${failed[0].error}`, "err");
     } else if (failed.length) {
-      setStatus(`Day planned, except ${failed.map((r) => r.scenario.label).join(" and ")}: ${failed[0].error}`, "err");
+      setStatus(`Dia planeado, exceto ${failed.map((r) => r.scenario.label).join(" e ")}: ${failed[0].error}`, "err");
     } else {
-      setStatus("Day planned.", "ok");
+      setStatus("Dia planeado.", "ok");
     }
   } catch (err) {
-    setStatus(`Request failed: ${err.message}`, "err");
+    setStatus(`O pedido falhou: ${BackendMessages.of(err)}`, "err");
   } finally {
     updateSolveButton();
   }
 };
 
+// Going back changes nothing: the plan, its routes on the map and the
+// scenario it was read under are all still there to come back to, and
+// only an edit to the day itself throws them away.
+document.getElementById("backToManage").onclick = () => showStep("manage");
+
 // Clears the day, not the configuration: the company stays where Config
 // put it.
 document.getElementById("clear").onclick = () => {
-  operations = []; nextOpId = 1;
+  operations = [];
   hideCsvReport();
   clearPlan();
   map.setView([depot.lat, depot.lng], 13);
@@ -2467,12 +2692,17 @@ document.getElementById("clear").onclick = () => {
 // ---------- health check ----------
 fetch("/api/health")
   .then((r) => (r.ok
-    ? setStatus("Solver reachable at /api (vroom-express).", "ok")
-    : setStatus(`Solver responded ${r.status}.`, "err")))
-  .catch(() => setStatus("Solver not reachable. Run frontend/setup.sh.", "err"));
+    ? setStatus("Otimizador acessível em /api (vroom-express).", "ok")
+    : setStatus(`O otimizador respondeu ${r.status}: ${BackendMessages.status(r.status)}.`, "err")))
+  .catch(() => setStatus("Otimizador inacessível. Execute o frontend/setup.sh.", "err"));
 
+// The working day, and how long a stop takes: both are read into every
+// request, so a plan made before they moved is not a plan for this day.
 for (const id of ["dayStart", "dayEnd", "lunchStart", "lunchEnd"]) {
-  document.getElementById(id).oninput = renderProblems;
+  document.getElementById(id).oninput = () => { clearPlan(); renderProblems(); };
+}
+for (const id of ["clientService", "companySetup", "companyService"]) {
+  document.getElementById(id).oninput = clearPlan;
 }
 
 // ---------- config: starting values from docs/waste_defaults.json ----------
@@ -2537,11 +2767,17 @@ extraTypeSel.onchange = () => {
   placeExtraMarker();
 };
 
-// Is this tab the one on screen? It decides what a click on the map
-// means: on the Plan tab it adds an operation to the day, here it moves
-// the job being asked about.
-function onExtraTab() {
-  return !document.getElementById("tab-extra").hidden;
+// The clock the question is asked at. It starts at the real one when
+// the working day is running and in the middle of the morning
+// otherwise, so the section always opens on a day with something left
+// in it: the question only means anything from inside the day.
+function initExtraClock() {
+  if (nowClock.value) return;
+  const t = readTimes();
+  const d = new Date();
+  const real = d.getHours() * 3600 + d.getMinutes() * 60;
+  const inside = real > t.dayStart && real < t.dayEnd;
+  nowClock.value = fmtClock(inside ? real : Math.round((t.dayStart + t.lunchStart) / 2));
 }
 
 // Seconds since midnight from the clock box, falling back to the start
@@ -2558,7 +2794,7 @@ function extraNow() {
 function renderNowState() {
   const box = document.getElementById("nowState");
   const run = currentRun();
-  if (!run || !run.stats) { box.textContent = "no plan yet"; return; }
+  if (!run || !run.stats) { box.textContent = "ainda não há plano"; return; }
   const now = extraNow();
   let out = 0;
   let todo = 0;
@@ -2572,24 +2808,9 @@ function renderNowState() {
       if (s.type !== "start" && s.type !== "end" && s.arrival > now) todo++;
     }
   }
-  box.textContent = `${out} truck${out === 1 ? "" : "s"} · ${todo} stop${todo === 1 ? "" : "s"} left`;
+  box.textContent = `${out} ${out === 1 ? "camião" : "camiões"} · faltam ${todo} ${todo === 1 ? "paragem" : "paragens"}`;
 }
 
-// Opening the tab. The clock starts at the real one when the working
-// day is running, and in the middle of the morning otherwise, so that
-// the tab always opens on a day with something left in it: the question
-// only means anything from inside the day.
-function enterExtraTab() {
-  if (!nowClock.value) {
-    const t = readTimes();
-    const d = new Date();
-    const real = d.getHours() * 3600 + d.getMinutes() * 60;
-    const inside = real > t.dayStart && real < t.dayEnd;
-    nowClock.value = fmtClock(inside ? real : Math.round((t.dayStart + t.lunchStart) / 2));
-  }
-  renderNowState();
-  placeExtraMarker();
-}
 
 // The plan the planner is looking at, which is the one an extra job is
 // fitted into: the selected scenario, not the last one solved.
@@ -2625,7 +2846,7 @@ async function osrmTable(profile, points) {
   const res = await fetch(url);
   const body = await res.json().catch(() => ({}));
   if (!res.ok || body.code !== "Ok") {
-    throw new Error(body.error || `${body.code || res.status}: ${body.message || "no travel times"}`);
+    throw new Error(BackendMessages.router(res.status, body));
   }
   return { durations: body.durations, distances: body.distances };
 }
@@ -2657,20 +2878,20 @@ function extraNotice(text, level) {
 function optionCard(option, i, color) {
   const shift = shiftsOfPlan().length > 1 ? `, ${option.shift.label}` : "";
   const where = option.spare
-    ? `a trip of its own, out at ${fmtClock(option.timeline[0].at)}`
-    : `${option.delayed} stop${option.delayed === 1 ? "" : "s"} pushed later`;
+    ? `uma viagem só para isto, a sair às ${fmtClock(option.timeline[0].at)}`
+    : `${option.delayed} ${option.delayed === 1 ? "paragem adiada" : "paragens adiadas"}`;
   const items = option.timeline.map((t) => {
     const late = t.moved > 0 ? `<span class="late">+${fmtDuration(t.moved)}</span>` : "";
-    const company = t.kind !== "new" && /at company|the company/.test(t.text);
+    const company = t.kind !== "new" && /empresa/.test(t.text);
     const cls = t.kind === "new" ? "new" : (company ? "company" : "");
     return `<li class="${cls}"><span class="t">${fmtClock(t.at)}</span><span>${esc(t.text)}</span>${late}</li>`;
   }).join("");
   return `<details class="route opt${i === extraShown ? " shown" : ""}" data-option="${i}" style="--rc:${color}"${i === extraShown ? " open" : ""}>
     <summary><span class="swatch"></span>
       <span class="name">${esc(option.name)}<small>${esc(shift)}</small></span>
-      <span class="meta">+${(option.extraDistance / 1000).toFixed(1)} km · +${fmtDuration(option.extraDuration)} · ${esc(money(option.extraMoney))}</span>
+      <span class="meta">+${dec(option.extraDistance / 1000, 1)} km · +${fmtDuration(option.extraDuration)}</span>
     </summary>
-    <div class="opt-why">${esc(where)} · back at the company ${fmtClock(option.endAfter)}, the shift ends ${fmtClock(option.shiftEnd)}</div>
+    <div class="opt-why">${esc(where)} · de volta à empresa às ${fmtClock(option.endAfter)}, o turno acaba às ${fmtClock(option.shiftEnd)}</div>
     <ol>${items}</ol></details>`;
 }
 
@@ -2683,18 +2904,18 @@ function renderExtraAnswer() {
   for (const n of prepared.notes) parts.push(extraNotice(n, "warn"));
   if (!prepared.problems.length && !result.options.length) {
     parts.push(extraNotice(
-      "The job fits nowhere today: every truck that could take it is either full, out of hours " +
-      "or barred from the area. It has to go on tomorrow's list.", "err"));
+      "O serviço não cabe em lado nenhum hoje: todos os camiões que o poderiam levar estão cheios, " +
+      "fora de horas ou impedidos de entrar na área. Tem de ir para a lista de amanhã.", "err"));
   }
   if (result.options.length) {
-    parts.push(`<div class="scen-head"><span class="t">Where it fits</span>` +
-      `<span class="n">${result.fitting} truck${result.fitting === 1 ? "" : "s"} could take it</span></div>`);
+    parts.push(`<div class="scen-head"><span class="t">Onde é que encaixa</span>` +
+      `<span class="n">${result.fitting} ${result.fitting === 1 ? "camião podia levá-lo" : "camiões podiam levá-lo"}</span></div>`);
     result.options.forEach((o, i) => {
       parts.push(optionCard(o, i, colors[o.vehicle] || COLORS[(i + 4) % COLORS.length]));
     });
-    parts.push(`<div class="hint">Cheapest first: what the detour adds in kilometres, at the price of the ` +
-      `truck that would drive them — the same money the plan itself is bought on. Nothing here has been ` +
-      `given to a truck: this is what it would cost, not a change to the day.</div>`);
+    parts.push(`<div class="hint">Ordenadas pelo que o desvio acrescenta — os quilómetros ao preço do ` +
+      `camião que os faria, a mesma conta com que o próprio plano é escolhido — da mais barata para a ` +
+      `mais cara. Nada disto foi atribuído a um camião: é o que aconteceria, não uma alteração ao dia.</div>`);
   }
   box.innerHTML = parts.join("");
   box.querySelectorAll("details.opt").forEach((d) => {
@@ -2702,34 +2923,51 @@ function renderExtraAnswer() {
   });
 }
 
-// Put one option on the map: the plan as it stands, faint, with that
-// truck's remaining day drawn over it and the new job pinned. The road
-// comes from OSRM, so the line is the one the truck would really drive.
+// Put one option on the map: the day as this option would leave it.
+// Every truck keeps the route and the colour its card carries, except
+// the one that would take the job, whose day is drawn from the option
+// instead — the road from OSRM, so the line is the one it would really
+// drive. A detour is only worth anything against the rest of the day,
+// so the rest of the day is what it is drawn against.
 async function showExtraOption(i) {
   if (!extraAnswer || !extraAnswer.result.options[i]) return;
   extraShown = i;
   const option = extraAnswer.result.options[i];
-  const color = extraAnswer.colors[option.vehicle] || COLORS[(i + 4) % COLORS.length];
+  const { colors, names } = extraAnswer;
+  const color = colors[option.vehicle] || COLORS[(i + 4) % COLORS.length];
   const run = currentRun();
   routeLayer.clearLayers();
+
+  // A trip of its own leaves every route of the plan standing and adds
+  // one; a detour replaces the route it is a detour of.
+  const replaced = option.spare ? null : option.vehicle;
   if (run && run.solution) {
     for (const r of run.solution.routes || []) {
+      if (r.vehicle === replaced) continue;
       const line = r.geometry
         ? decodePolyline(r.geometry)
         : (r.steps || []).map((s) => s.location).filter(Boolean).map(([lng, lat]) => [lat, lng]);
-      drawRoute(line, "#8b95a7", "as planned", true, true);
+      drawRoute(line, colors[r.vehicle] || UNASSIGNED_COLOR,
+                esc(names[r.vehicle] || "camião"), !r.geometry);
     }
   }
-  const road = await osrmRoute(option.route.profile, option.sequence);
+
+  // The truck that would take it, over its whole day rather than only
+  // what is left of it: the stops it has already left, then where the
+  // option sends it from where it stands. option.sequence begins at
+  // that standing point, so the two meet without repeating it.
+  const driven = (option.route.steps || []).slice(0, option.route.frozen).map((s) => s.loc);
+  const whole = [...driven.filter(Boolean), ...option.sequence];
+  const road = await osrmRoute(option.route.profile, whole);
   const line = road && road.geometry
     ? decodePolyline(road.geometry)
-    : option.sequence.map(([lng, lat]) => [lat, lng]);
-  drawRoute(line, color, `${option.name}, with the extra job`, !(road && road.geometry));
+    : whole.map(([lng, lat]) => [lat, lng]);
+  drawRoute(line, color, `${esc(option.name)}, com o serviço extra`, !(road && road.geometry));
   placeExtraMarker(color, option.name);
-  // The view settles on the truck that would take the job rather than
-  // on the whole day drawn behind it: what is being looked at is one
-  // route and one new stop.
-  if (line.length > 1) map.fitBounds(L.latLngBounds(line), { padding: [40, 40] });
+  // The view holds the whole day, not the one route: flipping between
+  // the options is then a comparison rather than a series of jumps.
+  const drawn = routeLayer.getLayers();
+  if (drawn.length) map.fitBounds(L.featureGroup(drawn).getBounds(), { padding: [40, 40] });
   renderExtraAnswer();
 }
 
@@ -2739,19 +2977,45 @@ async function showExtraOption(i) {
 // not part of the day: nothing here changes the plan or the list.
 function placeExtraMarker(color, note) {
   if (extraJobMarker) { markerLayer.removeLayer(extraJobMarker); extraJobMarker = null; }
+  updateExtraButtons();
   const job = extraJobOf();
   if (!job) return;
   const tint = color || OP_STYLE[job.type].color;
   extraJobMarker = L.marker([job.lat, job.lng], { icon: opPin({ ...job, id: "+" }, tint), zIndexOffset: 900 })
     .addTo(markerLayer)
-    .bindTooltip(`<b>Extra job</b> ${esc(M.describe(job))}` +
-                 `<span class="sub">${esc(note || "not part of the day")}</span>`, { direction: "top" });
+    .bindTooltip(`<b>Serviço extra</b> ${esc(M.describe(job))}` +
+                 `<span class="sub">${esc(note || "não faz parte do dia")}</span>`, { direction: "top" });
 }
 
-// Clicking the map on this tab moves the job being asked about. The
-// day is left alone: an answer is about the plan as it was solved, so
-// adding an operation here would throw away the very thing the
-// question is about.
+// The job was never given to anyone — nothing here touches the plan —
+// but once it is placed it is a pin on the map, a route drawn through
+// it and a stack of priced cards, and a call that turns out to be for
+// tomorrow has to be able to take all three back. This is the only way
+// out: the coordinates are what make a job exist here, so emptying
+// them is what ends it.
+function cancelExtraJob() {
+  const had = !!extraJobOf() || !!extraAnswer;
+  extraLat.value = "";
+  extraLng.value = "";
+  clearExtra();
+  // clearExtra takes the answer and the pin; the map still has the
+  // plan drawn as that answer would have left it.
+  const run = currentRun();
+  if (run && run.stats) showSolution(run);
+  if (had) setStatus("Serviço extra cancelado; o plano fica como estava.");
+}
+
+// Nothing to cancel until there is a job, and nothing to cancel once
+// it has been cancelled: the button says so rather than sitting there
+// looking like it would do something.
+function updateExtraButtons() {
+  document.getElementById("extraClear").disabled = !extraJobOf() && !extraAnswer;
+}
+
+// Clicking the map while a plan is on screen moves the job being asked
+// about. The day is left alone: an answer is about the plan as it was
+// solved, so adding an operation here would throw away the very thing
+// the question is about.
 function setExtraJob(lat, lng) {
   extraLat.value = lat.toFixed(6);
   extraLng.value = lng.toFixed(6);
@@ -2773,18 +3037,18 @@ function extraJobOf() {
 async function findExtra() {
   const run = currentRun();
   if (!run || !run.stats) {
-    setStatus("Plan the day first: an extra job is fitted into a plan, not into an empty map.", "err");
+    setStatus("Planeie o dia primeiro: um serviço extra encaixa-se num plano, não num mapa vazio.", "err");
     return;
   }
   const job = extraJobOf();
   if (!job) {
-    setStatus("The extra job needs a latitude and a longitude — click the map.", "err");
+    setStatus("O serviço extra precisa de uma latitude e de uma longitude — carregue no mapa.", "err");
     return;
   }
   renderNowState();
   const button = document.getElementById("extraFind");
   button.disabled = true;
-  setStatus("Looking for a place for it…", "busy");
+  setStatus("À procura de um lugar para ele…", "busy");
   try {
     const { names, colors } = planTrucks(run);
     const prepared = INS.prepare({
@@ -2809,20 +3073,20 @@ async function findExtra() {
       }
       result = INS.evaluate(prepared, matrices);
     }
-    extraAnswer = { prepared, result, colors };
+    extraAnswer = { prepared, result, colors, names };
     extraShown = 0;
     renderExtraAnswer();
     if (result.options.length) {
       await showExtraOption(0);
-      setStatus(`${result.fitting} truck${result.fitting === 1 ? "" : "s"} could still take it.`, "ok");
+      setStatus(`${result.fitting} ${result.fitting === 1 ? "camião ainda o podia levar" : "camiões ainda o podiam levar"}.`, "ok");
     } else {
-      setStatus(prepared.problems[0] || "Nowhere to put it today.", "err");
+      setStatus(prepared.problems[0] || "Não há onde o pôr hoje.", "err");
     }
   } catch (err) {
     extraAnswer = null;
     document.getElementById("extraResult").innerHTML = extraNotice(
-      `Cannot reach the routing server: ${err.message}`, "err");
-    setStatus(`Routing error: ${err.message}`, "err");
+      `Não foi possível contactar o servidor de encaminhamento: ${BackendMessages.of(err)}`, "err");
+    setStatus(`Erro de encaminhamento: ${BackendMessages.of(err)}`, "err");
   } finally {
     button.disabled = false;
   }
@@ -2835,11 +3099,13 @@ function clearExtra() {
   extraShown = 0;
   if (extraJobMarker) { markerLayer.removeLayer(extraJobMarker); extraJobMarker = null; }
   document.getElementById("extraResult").innerHTML = "";
+  updateExtraButtons();
 }
 
 for (const el of [extraLat, extraLng]) el.oninput = () => { clearExtra(); placeExtraMarker(); };
 extraSizeSel.onchange = clearExtra;
 document.getElementById("extraFind").onclick = findExtra;
+document.getElementById("extraClear").onclick = cancelExtraJob;
 document.getElementById("nowLive").onclick = () => {
   const d = new Date();
   nowClock.value = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;

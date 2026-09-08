@@ -9,12 +9,12 @@
     "_comment": "One entry per OSRM instance, named with letters only: VROOM puts the profile name in the OSRM request URL and OSRM accepts nothing else there ('car_chico' fails at solve time with 'URL string malformed'). 'car' is the unrestricted dataset every vehicle uses by default; any other profile is a copy of it with its zones penalised, served by its own container and declared under the same name in vroom-conf/config.yml, which is what binds a VROOM vehicle profile to a routing server. Each profile costs about 500 MB of disk and one container, so keep them few. 'service' is the docker-compose.yml service serving the profile, which the planner's Apply button (scripts/build_zone_graphs.sh --apply) starts or restarts after a build; 'host_port' is where that container is published on the host, used by the planner and the build script to check the instance from outside. Inside the compose network every osrm-routed listens on 5000, which is the port config.yml uses.",
     "car": {
       "host_port": 5000,
-      "description": "default profile: no area restriction"
+      "description": "perfil por omissão: sem restrição de áreas"
     },
     "chico": {
       "host_port": 5001,
       "service": "osrm-chico",
-      "description": "trucks going out with a chico"
+      "description": "camiões que saem com chico"
     }
   },
   "vehicle_profiles": {

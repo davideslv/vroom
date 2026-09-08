@@ -2,8 +2,10 @@
 
 The day is planned in the morning and then the phone rings: a client
 wants a container this afternoon. Who can still take it, and what does
-it cost? That is the question the planner's **Extra job** tab answers,
-and it answers it without planning the day again. Companion to
+it cost? That is the question the planner's **Encaixar mais um serviço**
+section answers — sitting under the plan it is asked about, at the foot
+of **Soluções apresentadas** — and it answers it without planning the
+day again. Companion to
 [waste_transport_problem.md](./waste_transport_problem.md) (the
 "Dynamics" section states the requirement) and to
 [no_go_zones.md](./no_go_zones.md).
@@ -15,7 +17,7 @@ Contents:
 - [The clock: "it is now 11:20"](#the-clock-it-is-now-1120)
 - [What makes an insertion impossible](#what-makes-an-insertion-impossible)
 - [What is offered, and in what order](#what-is-offered-and-in-what-order)
-- [Using the tab](#using-the-tab)
+- [Using it](#using-it)
 - [The pieces](#the-pieces)
 - [Checking that it works](#checking-that-it-works)
 - [Limits](#limits)
@@ -36,7 +38,7 @@ Taking the plan as fixed and slotting the job into it is a smaller
 question with a much better answer: exactly one truck's route changes,
 by a detour the planner can read in a line, and everybody else's day is
 untouched. It is also the answer a dispatcher gives on the phone, which
-is what the tab is for.
+is what this is for.
 
 ## Why VROOM is not involved
 
@@ -87,7 +89,7 @@ per truck even on a full day, and the answer is instant.
 ## The clock: "it is now 11:20"
 
 The planner is in the middle of the day, so most of the plan is history
-and must not be touched. The clock at the top of the tab is what the
+and must not be touched. The clock at the top of the section is what the
 question is asked at, and it freezes the route up to the last stop the
 truck has already left:
 
@@ -101,7 +103,7 @@ truck has already left:
 The clock is a simulation: it is set by hand (or from the real clock
 with one button), so the same job can be tried at nine in the morning
 and at half past three and the answers compared. Nothing outside this
-tab reads it.
+section reads it.
 
 ## What makes an insertion impossible
 
@@ -129,7 +131,7 @@ What is deliberately *not* enforced is the container stock. Whether the
 yard still holds an empty of that size is a fact about the yard, not
 about the route, and the planner standing in front of it knows better
 than the browser does: when the day already hands out every container of
-that size, the tab says so and offers the options anyway.
+that size, it says so and offers the options anyway.
 
 ## What is offered, and in what order
 
@@ -138,7 +140,10 @@ the kilometres it adds at the price of the truck that would drive them,
 see the cost model in `waste_model.js` — and the cheapest are offered
 first, one per truck: the second-best way of fitting the job into the
 same route is not a second option to a dispatcher, it is the same phone
-call.
+call. The price does the ordering and is not shown: on the phone what
+is being weighed is the detour and the hour it lands in, and a figure
+in euros beside them reads as a quotation for the client, which it is
+not.
 
 Two of them are shown. The planner is making a phone call, not reading a
 report, and the second option is there because the best one on paper may
@@ -150,38 +155,51 @@ includes a truck that is already back from its round with hours of its
 shift left. Such a trip is ranked no differently from a detour: it is
 simply an expensive one, which is exactly what it is.
 
-Each option shows the truck, what it adds in kilometres, in time and in
-money, and the rest of that driver's shift with the new stops woven into
-it and the delay each existing stop picks up. The map draws the day it
-would change, faint, with that truck's remaining route over it, drawn
-along the real roads.
+Each option shows the truck, what it adds in kilometres and in time, and
+the rest of that driver's shift with the new stops woven into it and the
+delay each existing stop picks up. The map draws the day as
+that option would leave it: every truck in the colour its route card
+carries, and the one that would take the job drawn from the option
+instead, over its whole day and along the real roads. A detour is only
+worth anything against the rest of the day, so the rest of the day is
+what it is shown against. A trip of its own is drawn as one more route
+beside the others, since that is what it would be.
 
-**Nothing is committed.** The tab answers a question; it does not touch
-the day, the operation list or the plan. Giving the job to the truck is
-a phone call, and putting it into tomorrow's plan is an operation added
-on the Plan tab like any other.
+**Nothing is committed.** It answers a question; it does not touch the
+day, the operation list or the plan. Giving the job to the truck is a
+phone call, and putting it into tomorrow's plan is an operation added in
+**Gestão de operações** like any other.
 
-## Using the tab
+## Using it
 
-1. Plan the day on the **Plan** tab as usual. An extra job is fitted
-   into the plan on screen — the scenario currently selected, not the
-   last one solved, so picking another scenario and asking again
-   compares the two.
-2. Open **Extra job** and set the clock to the moment the call comes in.
-   The line next to it says what that leaves: how many trucks are on the
-   road and how many stops are still to come.
+1. Plan the day in **Gestão de operações** as usual and press
+   **Encontrar plano**. An extra job is fitted into the plan on screen —
+   the scenario currently selected, not the last one solved, so picking
+   another scenario and asking again compares the two.
+2. Under the route cards, **Encaixar mais um serviço** is waiting. Set
+   the clock to the moment the call comes in; the line next to it says
+   what that leaves: how many trucks are on the road and how many stops
+   are still to come.
 3. Say what the job is (operation, container size) and where: click the
-   map, or type a latitude and longitude. While this tab is open a click
-   on the map moves the job rather than adding an operation to the day.
-4. Press **Where does it fit?**. The two cheapest places come back;
-   clicking a card puts that one on the map.
+   map, or type a latitude and longitude. With a plan on screen a click
+   on the map moves the job rather than adding an operation to the day;
+   the day is only added to in the other step.
+4. Press **Onde é que encaixa?**. The cheapest places come back; clicking
+   a card draws that one. The view holds the whole day rather than the
+   one route, so moving between the cards is a comparison and not a
+   series of jumps.
+5. **Cancelar o serviço** takes the job back: the coordinates, the pin,
+   the option cards and the drawing all go together, and the plan is
+   redrawn as it stands. Nothing was ever given to a truck, so there is
+   nothing else to undo — but a call that turns out to be for tomorrow
+   should not have to be scrolled past for the rest of the day.
 
 ## The pieces
 
 | File | What it does |
 | --- | --- |
 | `frontend/public/waste_insert.js` | the whole of the arithmetic: the chain of stops, the placements, the checks and the pricing. No DOM, no fetching, so it runs under node as well as in the browser |
-| `frontend/public/index.html` | the tab: the clock, the job, the option cards and the map preview |
+| `frontend/public/index.html` | the section: the clock, the job, the option cards and the map preview |
 | `frontend/server.js` | `/osrm/<profile>/...`, the browser's way to the routing containers |
 | `scripts/extra_job_check.js` | the checks below |
 
@@ -201,7 +219,7 @@ driving is closed, a cap keeps the job out of the route — and the script
 exits non-zero if any of them stops being true.
 
 For the round trip through the real thing, plan a day in the planner and
-ask the tab; the browser console has `INS`, `extraAnswer` and
+ask the section; the browser console has `INS`, `extraAnswer` and
 `osrmTable` if the numbers need to be taken apart.
 
 ## Limits
