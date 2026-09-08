@@ -340,6 +340,13 @@
   /* Where one more job fits into a plan already on the road. The option
      cards reuse the route cards of a plan, since they are the same
      thing: a truck's remaining day, with the new stops woven into it. */
+  /* the extra job, under the plan it is asked about */
+  .extra-head {
+    display: flex; align-items: baseline; gap: 9px; flex-wrap: wrap;
+    margin-top: 3px; padding-top: 13px; border-top: 1px dashed var(--line);
+    font-size: 13.5px; font-weight: 650; color: var(--ink);
+  }
+  .extra-head span { font-weight: 400; font-size: 11.5px; color: var(--ink-3); }
   #extraResult:empty { display: none; }
   #extraResult { display: flex; flex-direction: column; gap: 10px; }
   .ro { display: flex; align-items: center; height: 33px; font-size: 12.5px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
@@ -440,7 +447,6 @@
       <div id="status"><span class="dot"></span><span class="txt">A verificar o otimizador…</span></div>
       <div class="tabs">
         <button class="active" data-tab="solve">Plano</button>
-        <button data-tab="extra">Serviço extra</button>
         <button data-tab="zones">Zonas</button>
         <button data-tab="costs">Custos</button>
         <button data-tab="config">Configuração</button>
@@ -500,19 +506,20 @@
       <div id="scenarios"></div>
 
       <div id="summary"></div>
-      </div>
-    </div>
 
-    <!-- ===== Extra job tab ===== -->
-    <!-- One more job, into a day that is already on the road. Nothing
-         is solved again: the plan on screen is taken as given and the
-         job is slotted into it, priced with travel times fetched
-         straight from OSRM (frontend/server.js proxies them at
-         /osrm/<profile>/...). The logic is in waste_insert.js and the
-         planner-facing description in docs/extra_job.md. -->
-    <div class="panel" id="tab-extra" hidden>
+      <!-- One more job, into a day that is already on the road. It
+           lives under the plan because that is what it is about: the
+           selected scenario is taken as given and the job is slotted
+           into it, priced with travel times fetched straight from OSRM
+           (frontend/server.js proxies them at /osrm/<profile>/...).
+           Nothing is solved again. Closed to start with, since most
+           days nobody rings; open, it takes the map over, a click
+           placing the job instead of adding an operation. The logic is
+           in waste_insert.js and the planner-facing description in
+           docs/extra_job.md. -->
+      <div class="extra-head">Encaixar mais um serviço<span>o dia já vai a meio e o telefone toca</span></div>
       <fieldset>
-        <legend>Onde vai o dia</legend>
+        <legend>Adicionado às</legend>
         <div class="grid3">
           <div class="field"><span>São agora</span><input id="nowClock" type="time" step="60" /></div>
           <div class="field"><span>Na estrada</span><span class="ro" id="nowState">—</span></div>
@@ -530,12 +537,16 @@
         <div class="grid3">
           <div class="field"><span>Latitude</span><input id="extraLat" type="number" step="0.000001" placeholder="37.030558" /></div>
           <div class="field"><span>Longitude</span><input id="extraLng" type="number" step="0.000001" placeholder="-7.976093" /></div>
-          <button id="extraFind" class="primary">Onde é que encaixa?</button>
         </div>
-        <div class="hint">Carregue no mapa para pôr o serviço algures — enquanto este separador estiver aberto, carregar move este serviço em vez de acrescentar uma operação ao dia. O dia em si não é mexido: o plano fica exatamente como foi resolvido, e isto só diz quem ainda poderia atender mais uma chamada.</div>
+        <div class="btn-row">
+          <button id="extraFind" class="primary">Onde é que encaixa?</button>
+          <button id="extraClear" disabled>Cancelar o serviço</button>
+        </div>
+        <div class="hint">Carregue no mapa para pôr o serviço algures — com um plano no ecrã, carregar move este serviço em vez de acrescentar uma operação ao dia; para acrescentar ao dia, volte à gestão de operações. O plano em si não é mexido: fica exatamente como foi resolvido, e isto só diz quem ainda poderia atender mais uma chamada.</div>
       </fieldset>
 
       <div id="extraResult"></div>
+      </div>
     </div>
 
     <!-- ===== Zones tab ===== -->
@@ -853,7 +864,6 @@ document.querySelectorAll(".tabs button").forEach((btn) => {
     }
     document.getElementById("actions").hidden = btn.dataset.tab !== "solve";
     if (btn.dataset.tab === "zones") refreshZoneState();
-    if (btn.dataset.tab === "extra") enterExtraTab();
   };
 });
 
@@ -1343,10 +1353,10 @@ function addOperation(lat, lng) {
 map.on("click", (e) => {
   // While an area is being drawn the map places its corners instead.
   if (drawing) return addDrawingPoint(e.latlng.lat, e.latlng.lng);
-  // On the Extra job tab a click moves the job being asked about. That
-  // tab is about a plan that is already made, and adding an operation
-  // to the day would throw away the very thing the question is about.
-  if (onExtraTab()) return setExtraJob(e.latlng.lat, e.latlng.lng);
+  // On the solutions step a click moves the extra job being asked
+  // about. The day is only added to in the operations step: a stray
+  // click while reading a plan would clear the very plan being read.
+  if (planStep === "solutions") return setExtraJob(e.latlng.lat, e.latlng.lng);
   addOperation(e.latlng.lat, e.latlng.lng);
 });
 
@@ -1709,6 +1719,7 @@ function showStep(name) {
   // The panel is one scroller for both steps, so without this a step
   // opens wherever the other one was left.
   document.getElementById("tab-solve").scrollTop = 0;
+  if (name === "solutions") initExtraClock();
   updateSolveButton();
 }
 
@@ -2341,6 +2352,11 @@ function showSolution(run) {
     ${cards.join("")}`;
 
   renderPoints(unassignedOps, opColor, partialOps);
+  // The extra job lives under this plan and reads it: what is left of
+  // the day at the hour on its clock, and its own pin, which
+  // renderPoints has just cleared off the marker layer.
+  renderNowState();
+  placeExtraMarker();
   const drawn = routeLayer.getLayers();
   if (drawn.length) {
     map.fitBounds(L.featureGroup(drawn).getBounds(), { padding: [40, 40] });
@@ -2715,11 +2731,17 @@ extraTypeSel.onchange = () => {
   placeExtraMarker();
 };
 
-// Is this tab the one on screen? It decides what a click on the map
-// means: on the Plan tab it adds an operation to the day, here it moves
-// the job being asked about.
-function onExtraTab() {
-  return !document.getElementById("tab-extra").hidden;
+// The clock the question is asked at. It starts at the real one when
+// the working day is running and in the middle of the morning
+// otherwise, so the section always opens on a day with something left
+// in it: the question only means anything from inside the day.
+function initExtraClock() {
+  if (nowClock.value) return;
+  const t = readTimes();
+  const d = new Date();
+  const real = d.getHours() * 3600 + d.getMinutes() * 60;
+  const inside = real > t.dayStart && real < t.dayEnd;
+  nowClock.value = fmtClock(inside ? real : Math.round((t.dayStart + t.lunchStart) / 2));
 }
 
 // Seconds since midnight from the clock box, falling back to the start
@@ -2753,21 +2775,6 @@ function renderNowState() {
   box.textContent = `${out} ${out === 1 ? "camião" : "camiões"} · faltam ${todo} ${todo === 1 ? "paragem" : "paragens"}`;
 }
 
-// Opening the tab. The clock starts at the real one when the working
-// day is running, and in the middle of the morning otherwise, so that
-// the tab always opens on a day with something left in it: the question
-// only means anything from inside the day.
-function enterExtraTab() {
-  if (!nowClock.value) {
-    const t = readTimes();
-    const d = new Date();
-    const real = d.getHours() * 3600 + d.getMinutes() * 60;
-    const inside = real > t.dayStart && real < t.dayEnd;
-    nowClock.value = fmtClock(inside ? real : Math.round((t.dayStart + t.lunchStart) / 2));
-  }
-  renderNowState();
-  placeExtraMarker();
-}
 
 // The plan the planner is looking at, which is the one an extra job is
 // fitted into: the selected scenario, not the last one solved.
@@ -2846,7 +2853,7 @@ function optionCard(option, i, color) {
   return `<details class="route opt${i === extraShown ? " shown" : ""}" data-option="${i}" style="--rc:${color}"${i === extraShown ? " open" : ""}>
     <summary><span class="swatch"></span>
       <span class="name">${esc(option.name)}<small>${esc(shift)}</small></span>
-      <span class="meta">+${dec(option.extraDistance / 1000, 1)} km · +${fmtDuration(option.extraDuration)} · ${esc(money(option.extraMoney))}</span>
+      <span class="meta">+${dec(option.extraDistance / 1000, 1)} km · +${fmtDuration(option.extraDuration)}</span>
     </summary>
     <div class="opt-why">${esc(where)} · de volta à empresa às ${fmtClock(option.endAfter)}, o turno acaba às ${fmtClock(option.shiftEnd)}</div>
     <ol>${items}</ol></details>`;
@@ -2870,9 +2877,9 @@ function renderExtraAnswer() {
     result.options.forEach((o, i) => {
       parts.push(optionCard(o, i, colors[o.vehicle] || COLORS[(i + 4) % COLORS.length]));
     });
-    parts.push(`<div class="hint">Do mais barato para o mais caro: o que o desvio acrescenta em quilómetros, ao preço do ` +
-      `camião que os faria — o mesmo dinheiro com que o próprio plano é comprado. Nada disto foi ` +
-      `atribuído a um camião: é o que custaria, não uma alteração ao dia.</div>`);
+    parts.push(`<div class="hint">Ordenadas pelo que o desvio acrescenta — os quilómetros ao preço do ` +
+      `camião que os faria, a mesma conta com que o próprio plano é escolhido — da mais barata para a ` +
+      `mais cara. Nada disto foi atribuído a um camião: é o que aconteceria, não uma alteração ao dia.</div>`);
   }
   box.innerHTML = parts.join("");
   box.querySelectorAll("details.opt").forEach((d) => {
@@ -2880,34 +2887,51 @@ function renderExtraAnswer() {
   });
 }
 
-// Put one option on the map: the plan as it stands, faint, with that
-// truck's remaining day drawn over it and the new job pinned. The road
-// comes from OSRM, so the line is the one the truck would really drive.
+// Put one option on the map: the day as this option would leave it.
+// Every truck keeps the route and the colour its card carries, except
+// the one that would take the job, whose day is drawn from the option
+// instead — the road from OSRM, so the line is the one it would really
+// drive. A detour is only worth anything against the rest of the day,
+// so the rest of the day is what it is drawn against.
 async function showExtraOption(i) {
   if (!extraAnswer || !extraAnswer.result.options[i]) return;
   extraShown = i;
   const option = extraAnswer.result.options[i];
-  const color = extraAnswer.colors[option.vehicle] || COLORS[(i + 4) % COLORS.length];
+  const { colors, names } = extraAnswer;
+  const color = colors[option.vehicle] || COLORS[(i + 4) % COLORS.length];
   const run = currentRun();
   routeLayer.clearLayers();
+
+  // A trip of its own leaves every route of the plan standing and adds
+  // one; a detour replaces the route it is a detour of.
+  const replaced = option.spare ? null : option.vehicle;
   if (run && run.solution) {
     for (const r of run.solution.routes || []) {
+      if (r.vehicle === replaced) continue;
       const line = r.geometry
         ? decodePolyline(r.geometry)
         : (r.steps || []).map((s) => s.location).filter(Boolean).map(([lng, lat]) => [lat, lng]);
-      drawRoute(line, "#8b95a7", "como estava planeado", true, true);
+      drawRoute(line, colors[r.vehicle] || UNASSIGNED_COLOR,
+                esc(names[r.vehicle] || "camião"), !r.geometry);
     }
   }
-  const road = await osrmRoute(option.route.profile, option.sequence);
+
+  // The truck that would take it, over its whole day rather than only
+  // what is left of it: the stops it has already left, then where the
+  // option sends it from where it stands. option.sequence begins at
+  // that standing point, so the two meet without repeating it.
+  const driven = (option.route.steps || []).slice(0, option.route.frozen).map((s) => s.loc);
+  const whole = [...driven.filter(Boolean), ...option.sequence];
+  const road = await osrmRoute(option.route.profile, whole);
   const line = road && road.geometry
     ? decodePolyline(road.geometry)
-    : option.sequence.map(([lng, lat]) => [lat, lng]);
-  drawRoute(line, color, `${option.name}, com o serviço extra`, !(road && road.geometry));
+    : whole.map(([lng, lat]) => [lat, lng]);
+  drawRoute(line, color, `${esc(option.name)}, com o serviço extra`, !(road && road.geometry));
   placeExtraMarker(color, option.name);
-  // The view settles on the truck that would take the job rather than
-  // on the whole day drawn behind it: what is being looked at is one
-  // route and one new stop.
-  if (line.length > 1) map.fitBounds(L.latLngBounds(line), { padding: [40, 40] });
+  // The view holds the whole day, not the one route: flipping between
+  // the options is then a comparison rather than a series of jumps.
+  const drawn = routeLayer.getLayers();
+  if (drawn.length) map.fitBounds(L.featureGroup(drawn).getBounds(), { padding: [40, 40] });
   renderExtraAnswer();
 }
 
@@ -2917,6 +2941,7 @@ async function showExtraOption(i) {
 // not part of the day: nothing here changes the plan or the list.
 function placeExtraMarker(color, note) {
   if (extraJobMarker) { markerLayer.removeLayer(extraJobMarker); extraJobMarker = null; }
+  updateExtraButtons();
   const job = extraJobOf();
   if (!job) return;
   const tint = color || OP_STYLE[job.type].color;
@@ -2926,10 +2951,35 @@ function placeExtraMarker(color, note) {
                  `<span class="sub">${esc(note || "não faz parte do dia")}</span>`, { direction: "top" });
 }
 
-// Clicking the map on this tab moves the job being asked about. The
-// day is left alone: an answer is about the plan as it was solved, so
-// adding an operation here would throw away the very thing the
-// question is about.
+// The job was never given to anyone — nothing here touches the plan —
+// but once it is placed it is a pin on the map, a route drawn through
+// it and a stack of priced cards, and a call that turns out to be for
+// tomorrow has to be able to take all three back. This is the only way
+// out: the coordinates are what make a job exist here, so emptying
+// them is what ends it.
+function cancelExtraJob() {
+  const had = !!extraJobOf() || !!extraAnswer;
+  extraLat.value = "";
+  extraLng.value = "";
+  clearExtra();
+  // clearExtra takes the answer and the pin; the map still has the
+  // plan drawn as that answer would have left it.
+  const run = currentRun();
+  if (run && run.stats) showSolution(run);
+  if (had) setStatus("Serviço extra cancelado; o plano fica como estava.");
+}
+
+// Nothing to cancel until there is a job, and nothing to cancel once
+// it has been cancelled: the button says so rather than sitting there
+// looking like it would do something.
+function updateExtraButtons() {
+  document.getElementById("extraClear").disabled = !extraJobOf() && !extraAnswer;
+}
+
+// Clicking the map while a plan is on screen moves the job being asked
+// about. The day is left alone: an answer is about the plan as it was
+// solved, so adding an operation here would throw away the very thing
+// the question is about.
 function setExtraJob(lat, lng) {
   extraLat.value = lat.toFixed(6);
   extraLng.value = lng.toFixed(6);
@@ -2987,7 +3037,7 @@ async function findExtra() {
       }
       result = INS.evaluate(prepared, matrices);
     }
-    extraAnswer = { prepared, result, colors };
+    extraAnswer = { prepared, result, colors, names };
     extraShown = 0;
     renderExtraAnswer();
     if (result.options.length) {
@@ -3013,11 +3063,13 @@ function clearExtra() {
   extraShown = 0;
   if (extraJobMarker) { markerLayer.removeLayer(extraJobMarker); extraJobMarker = null; }
   document.getElementById("extraResult").innerHTML = "";
+  updateExtraButtons();
 }
 
 for (const el of [extraLat, extraLng]) el.oninput = () => { clearExtra(); placeExtraMarker(); };
 extraSizeSel.onchange = clearExtra;
 document.getElementById("extraFind").onclick = findExtra;
+document.getElementById("extraClear").onclick = cancelExtraJob;
 document.getElementById("nowLive").onclick = () => {
   const d = new Date();
   nowClock.value = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
