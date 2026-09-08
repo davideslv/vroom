@@ -247,9 +247,14 @@
   .scen-head .t { font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--ink-3); }
   .scen-head .n { font-size: 11px; color: var(--ink-3); margin-left: auto; font-variant-numeric: tabular-nums; }
   /* One grid for the header and every row, so the figures of the plans
-     line up in columns and are compared by looking down them. */
-  .scen-table { border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); box-shadow: var(--shadow); overflow: hidden; }
-  .scen-hdr, .scen { display: grid; grid-template-columns: 1fr repeat(4, auto); gap: 0 9px; align-items: center; padding: 5px 10px; }
+     line up in columns and are compared by looking down them. The
+     columns belong to the table and each row subgrids into them.
+     Sized row by row instead, every grid would fit its own text and a
+     heading wider than the figures beneath it would carry its column
+     out from under them. The plain columns are the fallback for a
+     browser without subgrid. */
+  .scen-table { display: grid; grid-template-columns: 1fr repeat(4, auto); gap: 0 9px; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); box-shadow: var(--shadow); overflow: hidden; }
+  .scen-hdr, .scen { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr repeat(4, auto); grid-template-columns: subgrid; gap: 0 9px; align-items: center; padding: 5px 10px; }
   .scen-hdr { font-size: 10px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--ink-3); background: var(--panel-2); border-bottom: 1px solid var(--line); }
   .scen-hdr span { text-align: right; }
   .scen {
@@ -456,8 +461,9 @@
 
       <!-- The day planned under each scenario (see the scenarios block
            of docs/waste_defaults.json): one row per plan with what it
-           comes to in trucks, driving, kilometres and money, the plan
-           on the map being the selected row. Filled by renderScenarios. -->
+           comes to in trucks, driving, hours out and kilometres, the
+           plan on the map being the selected row. Filled by
+           renderScenarios. -->
       <div id="scenarios"></div>
 
       <div id="summary"></div>
@@ -1954,6 +1960,15 @@ function drawRoute(latlngs, color, name, dashed, faint) {
   }).addTo(routeLayer).bindTooltip(name, { sticky: true });
 }
 
+// How long a truck is out on one route: the road, the time it stands
+// on site handling containers, and the setup a stop at the company pays
+// once on arrival however many containers it then does. Waiting is in
+// there too — it is time the truck is out — though nothing in this model
+// has a window to wait for, so today it is always zero.
+function routeTime(r) {
+  return (r.duration || 0) + (r.setup || 0) + (r.service || 0) + (r.waiting_time || 0);
+}
+
 // The shifts a plan was made with, the fallback covering a day with no
 // lunch in it (see WasteModel.shiftsOf).
 function shiftsOfPlan() {
@@ -2017,26 +2032,7 @@ function planStats(run) {
   const firstShift = shifts[0].key;
   const offered = Object.values(vehicleInfo).filter((v) => v.shift === firstShift && !v.early);
 
-  // What the day costs in money: every route's kilometres at the price
-  // of the truck that drove them, plus the hours any truck put in before
-  // the working day. The solver's own cost figure is a rescaled internal
-  // number and is not money, so it is kept for debugging only.
-  //
-  // The afternoon charge is deliberately not in here. It is priced so
-  // the solver can weigh the time of day against the road, but nobody
-  // is paid for the afternoon who is not paid for the morning: adding
-  // it would put money in this figure that the company never spends.
-  let money = 0;
-  let moneyKnown = (sol.routes || []).length > 0;
-  for (const r of sol.routes || []) {
-    const info = vehicleInfo[r.vehicle] || {};
-    if (r.distance == null) { moneyKnown = false; break; }
-    money += M.moneyPerKm(M.configKeyOf(info.type, info.chico), lastCosts) * (r.distance / 1000);
-    money += M.moneyForEarlyStart(info.early || 0, lastCosts);
-  }
-
   const s = sol.summary || {};
-  const ct = s.computing_times;
   return {
     truckList,
     trucksUsed: truckList.length,
@@ -2046,15 +2042,21 @@ function planStats(run) {
     chicosUsed: Math.max(0, ...Object.values(chicosOfShift)),
     chicosTotal: offered.filter((v) => v.chico).length,
     duration: s.duration,
+    // The day as the trucks live it. Driving alone is the smaller half
+    // of it once the service times are counted — ten minutes a container
+    // at a client, five at the company — so a plan read on driving is
+    // read on well under the hours it actually asks of the fleet. This
+    // is what routeTime comes to over every route, which is why the
+    // summary and the route cards below it add up.
+    totalTime: s.duration != null
+      ? s.duration + (s.setup || 0) + (s.service || 0) + (s.waiting_time || 0)
+      : null,
     distance: s.distance,
-    money, moneyKnown,
     unassignedOps, partialOps,
-    solvedMs: ct ? ct.loading + ct.solving : null,
   };
 }
 
 function showSolution(run) {
-  const sol = run.solution;
   const stepInfo = run.stepInfo;
   const vehicleInfo = run.vehicleInfo;
   const st = run.stats;
@@ -2108,7 +2110,7 @@ function showSolution(run) {
         if (!atCompany) { clientStops++; opColor[opId] = opColor[opId] || color; }
         items.push(`<li class="${atCompany ? "company" : ""}">${clock}<span>${esc(text)}</span></li>`);
       }
-      time += r.duration + (r.service || 0) + (r.waiting_time || 0);
+      time += routeTime(r);
       if (r.distance != null) distance += r.distance; else distanceKnown = false;
 
       const tooltip = esc(shifts.length > 1 ? `${name}, ${shift.label}` : name);
@@ -2133,8 +2135,6 @@ function showSolution(run) {
       <ol>${items.join("")}</ol></details>`);
   });
 
-  const s = sol.summary || {};
-  const ct = st.solvedMs != null ? `${st.solvedMs} ms` : "–";
   const unassignedTitle = unassignedOps.size ? ` title="operations ${[...unassignedOps].sort((a, b) => a - b).join(", ")}"` : "";
   const partialNote = partialOps.size
     ? `<span class="v muted" style="display:inline;font-size:12px" title="operations ${[...partialOps].sort((a, b) => a - b).join(", ")}: partly done"> +${partialOps.size} partly</span>`
@@ -2144,10 +2144,9 @@ function showSolution(run) {
       <div><span class="k">Trucks</span><span class="v">${st.trucksUsed}<span class="v muted" style="display:inline;font-size:12px"> / ${st.trucksTotal}</span></span></div>
       <div><span class="k">Chicos</span><span class="v">${st.chicosUsed}<span class="v muted" style="display:inline;font-size:12px"> / ${st.chicosTotal}</span></span></div>
       <div><span class="k">Driving</span><span class="v">${st.duration != null ? fmtDuration(st.duration) : "–"}</span></div>
+      <div title="driving plus every minute spent on site handling containers"><span class="k">Total time</span><span class="v">${st.totalTime != null ? fmtDuration(st.totalTime) : "–"}</span></div>
       <div><span class="k">Distance</span><span class="v">${st.distance != null ? (st.distance / 1000).toFixed(1) + " km" : "–"}</span></div>
-      <div title="solver cost ${s.cost ?? "–"}"><span class="k">Cost</span><span class="v">${st.moneyKnown ? esc(money(st.money)) : "–"}</span></div>
       <div${unassignedTitle}><span class="k">Unassigned</span><span class="v ${unassignedOps.size ? "bad" : "muted"}">${unassignedOps.size}${partialNote}</span></div>
-      <div><span class="k">Solved in</span><span class="v muted">${ct}</span></div>
     </div>
     ${cards.join("")}`;
 
@@ -2162,10 +2161,10 @@ function showSolution(run) {
 //
 // The figures a plan is chosen on, in the order they are read. Each one
 // says how to show itself and what "better" means, which is always
-// less: fewer trucks out, less time on the road, fewer kilometres, less
-// money. `get` returns null when the solution does not carry the figure
-// (no distance without geometry, for one), and such a plan simply takes
-// no part in that row's comparison.
+// less: fewer trucks out, less time on the road, fewer hours out at all,
+// fewer kilometres. `get` returns null when the solution does not carry
+// the figure (no distance without geometry, for one), and such a plan
+// simply takes no part in that row's comparison.
 const SCENARIO_METRICS = [
   {
     label: "Trucks",
@@ -2180,14 +2179,14 @@ const SCENARIO_METRICS = [
     show: (st) => (st.duration != null ? fmtDuration(st.duration) : "–"),
   },
   {
+    label: "Total time",
+    get: (st) => st.totalTime ?? null,
+    show: (st) => (st.totalTime != null ? fmtDuration(st.totalTime) : "–"),
+  },
+  {
     label: "Distance",
     get: (st) => st.distance ?? null,
     show: (st) => (st.distance != null ? `${(st.distance / 1000).toFixed(1)}<small> km</small>` : "–"),
-  },
-  {
-    label: "Cost",
-    get: (st) => (st.moneyKnown ? st.money : null),
-    show: (st) => (st.moneyKnown ? esc(money(st.money)) : "–"),
   },
 ];
 
