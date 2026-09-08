@@ -260,6 +260,28 @@ not; a plan that sends one more truck out to save kilometres is the
 better plan, not the worse one. Time only sets what fits: the working
 hours below are a limit, not a price.
 
+Two things about a truck's day are priced all the same, and neither is
+about the hours it drives. One is an **early start**, which really is
+money: those hours are worked on top of the day, not inside it. The
+other is **working the afternoon**, which is not — it is a preference,
+that an operation which can be done in the morning should be. Clients
+would rather be served early, and an afternoon that overruns has no
+day left to absorb it. Both are stated per truck rather than per
+kilometre or per hour: what the plan pays for is sending a truck out
+early, and sending one out after lunch, however much either then does.
+Both sit under point 1 above and so can never leave an operation
+undone; they only choose between plans that do the same work. Their
+prices are `costs.early_start_per_hour` and `costs.afternoon_fixed` in
+`docs/waste_defaults.json`, both editable in the planner's Costs tab,
+and both at 0 mean the plan of point 2 alone.
+
+The afternoon price is worth 0 on most days, and that is not a
+disclaimer but the point: when the morning and the afternoon are the
+same length they are worth the same to the planner, and the day comes
+out in the morning without being asked. It is a day cut unevenly — a
+short morning against a long afternoon — where the afternoon is
+genuinely the cheaper half and a price is what buys the morning back.
+
 That said, the plan this gives is one of several defensible ones, and
 which is wanted is a judgement rather than a fact: the cheapest day
 puts the small cheap trucks on many trips, so it is also the day with

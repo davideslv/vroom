@@ -560,6 +560,12 @@
       </fieldset>
 
       <fieldset>
+        <legend>Working the afternoon</legend>
+        <label><span>Per truck out after lunch</span><input id="costAfternoonFixed" type="number" min="0" step="1" value="0" /></label>
+        <div class="hint" id="afternoonCostHint">Leave this at 0 unless the day is lopsided. With a morning and an afternoon of equal length the two are worth exactly the same to the solver, and the plan comes out in the morning anyway, so a price here buys nothing; the afternoon work left in such a plan is work that did not fit the morning, and no price moves that — the most operations always come first. Where it earns its keep is a day cut unevenly, a short morning against a long afternoon: then the afternoon really is the cheaper half, whole days end up in it, and this is what buys them back. It also settles the matter where the two halves tie, which today the planner wins by the order it happens to offer the trucks in rather than by anything it has been told. Charged once per truck that works the afternoon, however many operations it does there, so a truck already out does its next one for free. It is not money the company spends — nobody is paid for the afternoon who is not paid for the morning — so it decides the plan without appearing in what the plan is reported to cost.</div>
+      </fieldset>
+
+      <fieldset>
         <legend>What the solver is told</legend>
         <div class="formula" id="costFormula"></div>
       </fieldset>
@@ -1690,6 +1696,7 @@ function readCosts() {
   for (const type of M.TYPE_ORDER) costs.per_km[type] = numberOf(`costkm-${type}`);
   for (const key of M.CHICO_ORDER) costs.chico_multiplier[key] = numberOf(`chicomul-${key}`);
   costs.early_start_per_hour = numberOf("costEarlyPerHour");
+  costs.afternoon_fixed = numberOf("costAfternoonFixed");
   return costs;
 }
 
@@ -1719,8 +1726,9 @@ function money(value) {
 function onCostChange() {
   clearPlan();
   refreshCostHints();
-  // An early start priced at nothing is a warning, so the problems box
-  // follows the prices too.
+  // Two of the warnings are about prices — an early start priced at
+  // nothing, an afternoon priced on a day that has none — so the
+  // problems box follows the prices too.
   renderProblems();
 }
 
@@ -1763,6 +1771,21 @@ function refreshCostHints() {
     })
     .join("");
 
+  // The afternoon charge on the same scale, and for the same reason:
+  // what the solver actually weighs is the equivalence, not the money.
+  // One price covers the whole fleet, so it is one row, and there is no
+  // row at all when the two halves of the day are priced alike.
+  const afternoonMoney = M.moneyForAfternoon(costs);
+  const afternoonFixed = M.solverAfternoonFixed(costs);
+  const afternoonKm = dearest > 0
+    ? ` <span class="muted">(${(afternoonFixed / M.COST_SCALE).toFixed(1)} km of the dearest truck)</span>`
+    : "";
+  const afternoonRows = afternoonMoney > 0
+    ? `<tr><td>Work the afternoon <span class="muted">(every truck)</span></td>` +
+      `<td class="n">${esc(money(afternoonMoney))}</td>` +
+      `<td class="raw">${afternoonFixed}${afternoonKm}</td></tr>`
+    : "";
+
   const priced = M.VEHICLE_CONFIGS.some((cfg) => M.moneyPerKm(cfg.key, costs) > 0);
   const note = priced
     ? `<span class="muted">The right-hand column is what VROOM is given: the same numbers rescaled, ` +
@@ -1771,7 +1794,8 @@ function refreshCostHints() {
     : `<span class="warn">Nothing costs anything, so every plan that does the same operations is worth ` +
       `the same and the solver falls back on driving time and the fewest trucks. Price at least one truck.</span>`;
 
-  document.getElementById("costFormula").innerHTML = `<table>${rows}${earlyRows}</table>${note}`;
+  document.getElementById("costFormula").innerHTML =
+    `<table>${rows}${earlyRows}${afternoonRows}</table>${note}`;
 }
 
 // Rendered from M.TYPE_ORDER and M.CHICO_ORDER, so a new truck type or
@@ -1820,6 +1844,7 @@ function renderCosts() {
   }
 
   document.getElementById("costEarlyPerHour").value = defaults.early_start_per_hour;
+  document.getElementById("costAfternoonFixed").value = defaults.afternoon_fixed;
 
   const limits = M.defaultLimits();
   document.getElementById("maxTravelTime").value = limits.maxTravelTime / 60;
@@ -1830,7 +1855,7 @@ function renderCosts() {
   document.getElementById("threads").value = M.SOLVER_DEFAULTS.threads;
   document.getElementById("geometry").checked = !!M.SOLVER_DEFAULTS.geometry;
 
-  for (const id of ["costEarlyPerHour", "maxTravelTime", "maxDistance", "maxTasks", "explorationLevel", "threads"]) {
+  for (const id of ["costEarlyPerHour", "costAfternoonFixed", "maxTravelTime", "maxDistance", "maxTasks", "explorationLevel", "threads"]) {
     document.getElementById(id).oninput = onCostChange;
   }
   document.getElementById("geometry").onchange = onCostChange;
@@ -1996,6 +2021,11 @@ function planStats(run) {
   // of the truck that drove them, plus the hours any truck put in before
   // the working day. The solver's own cost figure is a rescaled internal
   // number and is not money, so it is kept for debugging only.
+  //
+  // The afternoon charge is deliberately not in here. It is priced so
+  // the solver can weigh the time of day against the road, but nobody
+  // is paid for the afternoon who is not paid for the morning: adding
+  // it would put money in this figure that the company never spends.
   let money = 0;
   let moneyKnown = (sol.routes || []).length > 0;
   for (const r of sol.routes || []) {
