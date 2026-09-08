@@ -165,8 +165,8 @@ run("a gap the truck is already driving is closed", {
     const route = p.routes.find((x) => !x.spare);
     const own = r.options.filter((o) => !o.spare);
     return route && route.frozen === 2 && own.every((o) => {
-      const line = o.timeline.findIndex((t) => t.kind === "new" && /deliver empty/.test(t.text));
-      const b = o.timeline.findIndex((t) => /op 2: pick up full/.test(t.text));
+      const line = o.timeline.findIndex((t) => t.kind === "new" && /entregar vazio/.test(t.text));
+      const b = o.timeline.findIndex((t) => /op 2: recolher cheio/.test(t.text));
       return line > b;
     });
   },
@@ -177,7 +177,7 @@ run("a gap the truck is already driving is closed", {
 run("an empty yard is said and not enforced", {
   op: deliver, now: 8 * 3600, stock: { 6: 1 },
   operations: [{ id: 1, type: "exchange", size: 6 }],
-  expect: (r, p) => p.notes.some((n) => /container/.test(n)) && r.options.length > 0,
+  expect: (r, p) => p.notes.some((n) => /contentor/.test(n)) && r.options.length > 0,
 });
 
 console.log(process.exitCode ? "\nsomething is wrong" : "\nall checks passed");

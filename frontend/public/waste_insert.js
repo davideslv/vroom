@@ -122,7 +122,7 @@
 
   function create(M) {
     if (!M || typeof M.buildRequest !== "function") {
-      throw new Error("WasteInsert.create expects a WasteModel");
+      throw new Error("WasteInsert.create espera um WasteModel");
     }
 
     // The stops one operation adds to a route, in the order they have
@@ -137,30 +137,30 @@
       switch (op.type) {
         case "deliver_empty":
           return [
-            { ...company(`load empty ${size} m³ at the company`), amount: M.oneHot(`e${size}`) },
-            { ...client(`deliver empty ${size} m³`, times.clientService), amount: null },
+            { ...company(`carregar vazio de ${size} m³ na empresa`), amount: M.oneHot(`e${size}`) },
+            { ...client(`entregar vazio de ${size} m³`, times.clientService), amount: null },
           ];
         case "sell_materials":
           return [
-            { ...company(`load materials (${size} m³ container) at the company`), amount: M.oneHot(`f${size}`) },
-            { ...client(`deliver materials (${size} m³ container)`, times.clientService), amount: null },
+            { ...company(`carregar materiais (contentor de ${size} m³) na empresa`), amount: M.oneHot(`f${size}`) },
+            { ...client(`entregar materiais (contentor de ${size} m³)`, times.clientService), amount: null },
           ];
         case "pickup_full":
           return [
-            { ...client(`pick up full ${size} m³`, times.clientService), amount: M.oneHot(`f${size}`) },
-            { ...company(`empty full ${size} m³ at the company`), amount: null },
+            { ...client(`recolher cheio de ${size} m³`, times.clientService), amount: M.oneHot(`f${size}`) },
+            { ...company(`despejar cheio de ${size} m³ na empresa`), amount: null },
           ];
         case "exchange":
           // One stop at the client: the empty comes off and the full
           // goes on, which is two container movements and so twice the
           // handling time, but a single visit.
           return [
-            { ...company(`load empty ${size} m³ at the company`), amount: M.oneHot(`e${size}`) },
-            { ...client(`swap empty for full ${size} m³`, 2 * times.clientService), amount: M.oneHot(`f${size}`) },
-            { ...company(`empty full ${size} m³ at the company`), amount: null },
+            { ...company(`carregar vazio de ${size} m³ na empresa`), amount: M.oneHot(`e${size}`) },
+            { ...client(`trocar vazio por cheio de ${size} m³`, 2 * times.clientService), amount: M.oneHot(`f${size}`) },
+            { ...company(`despejar cheio de ${size} m³ na empresa`), amount: null },
           ];
         default:
-          throw new Error(`unknown operation type ${op.type}`);
+          throw new Error(`tipo de operação desconhecido: ${op.type}`);
       }
     }
 
@@ -293,12 +293,12 @@
       fleet = Object.assign(M.defaultFleet(), fleet || {});
 
       const type = M.OPERATION_TYPES[op && op.type];
-      if (!type) problems.push(`Pick what the job is.`);
+      if (!type) problems.push(`Escolha o que é o serviço.`);
       if (type && type.needsSize && !M.SIZES.includes(Number(op.size))) {
-        problems.push(`${op.size} m³ is not a container size.`);
+        problems.push(`${op.size} m³ não é um tamanho de contentor.`);
       }
       if (!op || !isFinite(op.lat) || !isFinite(op.lng)) {
-        problems.push("The job needs a latitude and a longitude.");
+        problems.push("O serviço precisa de uma latitude e de uma longitude.");
       }
       if (problems.length) return { problems, notes, routes: [], points: {} };
 
@@ -371,8 +371,8 @@
 
       if (!routes.length) {
         problems.push(skipped.zone && !skipped.done
-          ? "No truck may enter the area this job is in."
-          : `Nothing is still on the road at ${M.clockOf(now)}.`);
+          ? "Nenhum camião pode entrar na área onde este serviço fica."
+          : `Às ${M.clockOf(now)} já não há nada na estrada.`);
       }
 
       // The yard is a fact about the yard: whether an empty of that
@@ -384,14 +384,14 @@
         if (held !== null) {
           const used = M.stockUsers(operations || [], size).length;
           if (used >= held) {
-            notes.push(`The day already hands out all ${held} of the ${size} m³ containers in the yard. ` +
-                       "This job needs one more, so it only works if one has come back.");
+            notes.push(`O dia já distribui os ${held} contentores de ${size} m³ que há no estaleiro. ` +
+                       "Este serviço precisa de mais um, por isso só resulta se algum já tiver voltado.");
           }
         }
       }
       if (skipped.zone) {
-        notes.push(`${skipped.zone} truck${skipped.zone === 1 ? "" : "s"} left out: the job is inside an area ` +
-                   "they may not drive through.");
+        notes.push(`${skipped.zone} ${skipped.zone === 1 ? "camião ficou de fora" : "camiões ficaram de fora"}: ` +
+                   "o serviço fica dentro de uma área por onde não podem circular.");
       }
 
       // One matrix per routing profile, over the company, the new
@@ -516,7 +516,7 @@
 
       const planned = (step, at) => ({
         kind: step.type === "start" ? "start" : step.type === "end" ? "end" : "planned",
-        text: step.description || (step.type === "start" ? "leaves the company" : "back at the company"),
+        text: step.description || (step.type === "start" ? "sai da empresa" : "de volta à empresa"),
         at,
         // A trip that does not exist yet is not late: only the stops of
         // a route the driver already has can move.

@@ -12,7 +12,7 @@
   },
   "trucks": {
     "small": {
-      "label": "Small",
+      "label": "Pequeno",
       "rules": [
         "3e2",
         "1f2"
