@@ -867,6 +867,12 @@ document.querySelectorAll(".tabs button").forEach((btn) => {
   };
 });
 
+// Is the Plan tab the one on screen? A click on the map only means
+// something there, and the panel is the only thing that says so.
+function onPlanTab() {
+  return !document.getElementById("tab-solve").hidden;
+}
+
 // ---------- selectors ----------
 function fillTypeSelect(sel, value, short) {
   sel.innerHTML = "";
@@ -1351,11 +1357,19 @@ function addOperation(lat, lng) {
 }
 
 map.on("click", (e) => {
-  // While an area is being drawn the map places its corners instead.
+  // Drawing an area is a mode of its own and outranks everything: while
+  // it is on, the map places the corners of that area and nothing else.
   if (drawing) return addDrawingPoint(e.latlng.lat, e.latlng.lng);
-  // On the solutions step a click moves the extra job being asked
-  // about. The day is only added to in the operations step: a stray
-  // click while reading a plan would clear the very plan being read.
+  // Otherwise a click belongs to the Plan tab, and to whichever of its
+  // two steps is on screen: the day is added to where the day is put
+  // together, and the extra job is moved where a plan is being read.
+  // On the other tabs the map is there to be looked at rather than
+  // pointed at — the areas, the prices and the fleet are all edited in
+  // the panel — so a click does nothing at all. It used to fall through
+  // to whichever of the two the Plan tab had been left on, which meant
+  // reading the Costs tab and touching the map quietly added an
+  // operation to a day that was not even on screen.
+  if (!onPlanTab()) return;
   if (planStep === "solutions") return setExtraJob(e.latlng.lat, e.latlng.lng);
   addOperation(e.latlng.lat, e.latlng.lng);
 });
