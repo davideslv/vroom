@@ -13,10 +13,17 @@
 //   POST /zones/build    -> run scripts/build_zone_graphs.sh --apply in the background
 //                           (the Zones tab's Apply button); 409 while one is running
 //   GET  /zones/build    -> state and log of that run
+//   GET  /osrm/<profile>/<service>/v1/<...>
+//                        -> the OSRM instance serving that routing profile
+//                           (the Extra job tab: fitting one more job into a
+//                           plan needs travel times and nothing else, so it
+//                           asks the router directly instead of the solver)
 //   GET  /<file>         -> public/<file>
 //   ANY  /api/<path>     -> ${VROOM_URL}/<path>   (POST /api -> vroom-express solve endpoint)
 //
 // Env: PORT (default 8080), VROOM_URL (default http://localhost:3000),
+//      OSRM_HOST (where the OSRM containers publish their ports, default
+//      127.0.0.1; the ports themselves come from docs/no_go_zones.json),
 //      ZONES_BASH (the bash that runs the build script; found on its own
 //      otherwise, see findBash)
 
@@ -348,6 +355,62 @@ function buildStatus(res) {
   sendJson(res, 200, build || { running: false, started_at: null, finished_at: null, exit_code: null, log: "" });
 }
 
+// ------------------------------------------------------------------ osrm
+
+// The routing engine, straight. VROOM is the right tool for planning a
+// day and the wrong one for the question the Extra job tab asks — where
+// does one more job fit into a plan whose trucks are already out — which
+// needs travel times between points that are already decided and no
+// search at all. Those come from the same OSRM instances the solver
+// uses, so a detour costs here exactly what it will cost in the plan.
+//
+// One instance per routing profile of docs/no_go_zones.json, published
+// on the host at its `host_port` (the ports inside the compose network
+// are a different thing, see vroom-conf/config.yml). Only the two
+// read-only services the tab needs are passed through, and only GET:
+// this is a browser reaching a container it cannot otherwise see, not a
+// general-purpose proxy.
+const OSRM_HOST = process.env.OSRM_HOST || "127.0.0.1";
+const OSRM_SERVICES = ["table", "route", "nearest"];
+
+function osrmProxy(req, res, pathname, search) {
+  const parts = pathname.split("/").filter(Boolean); // osrm, <profile>, <service>, v1, ...
+  const profile = parts[1];
+  const service = parts[2];
+  if (!profile || !OSRM_SERVICES.includes(service)) {
+    return sendJson(res, 400, {
+      error: `expected /osrm/<profile>/(${OSRM_SERVICES.join("|")})/v1/...`,
+    });
+  }
+  readZones((err, config) => {
+    if (err) return sendJson(res, 500, { error: err.message });
+    const def = (config.profiles || {})[profile];
+    const port = def && def.host_port;
+    if (!port) {
+      return sendJson(res, 404, {
+        error: `no routing profile ${profile} with a host_port in docs/no_go_zones.json`,
+      });
+    }
+    const target = `/${parts.slice(2).join("/")}${search}`;
+    const upstream = http.request(
+      { hostname: OSRM_HOST, port, path: target, method: "GET" },
+      (up) => {
+        res.writeHead(up.statusCode, {
+          "Content-Type": up.headers["content-type"] || "application/json",
+        });
+        up.pipe(res);
+      });
+    upstream.on("error", (e) => {
+      sendJson(res, 502, {
+        error: `cannot reach the ${profile} routing server at ${OSRM_HOST}:${port} ` +
+          `(${e.code || e.message}). Is its container running? ` +
+          "(docker compose ps; a restricted profile is started by scripts/build_zone_graphs.sh --apply)",
+      });
+    });
+    upstream.end();
+  });
+}
+
 // ---------------------------------------------------------------- serving
 
 function serveStatic(req, res) {
@@ -394,6 +457,10 @@ http
     if (req.method === "PUT" && req.url === "/zones.json") return saveZones(req, res);
     if (req.method === "POST" && req.url === "/zones/build") return startBuild(res);
     if (req.method !== "GET") return sendJson(res, 405, { error: "method not allowed" });
+    if (req.url.startsWith("/osrm/")) {
+      const url = new URL(req.url, "http://x");
+      return osrmProxy(req, res, url.pathname, url.search);
+    }
     if (req.url === "/zones/build") return buildStatus(res);
     if (req.url === "/rules.js") return serveConfig(res, RULES_FILE, "WASTE_RULES", true);
     if (req.url === "/rules.json") return serveConfig(res, RULES_FILE, "WASTE_RULES", false);

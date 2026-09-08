@@ -44,7 +44,7 @@ the real problem is not modelled and needs a post-check.
 | Lunch break, spent at the company | two vehicles per truck configuration, one per shift, each with the shift as its `time_window`; no `breaks` | native |
 | Leave operations for tomorrow, with priorities | `priority`, `unassigned` output | native |
 | Objective: most operations, then the cost of the kilometres driven | solution ranking + `costs`, priced per truck type in the planner's Costs tab | native |
-| New operation mid-day | re-run with current state as input, travel times from OSRM, `steps` warm start | supported by a re-planning procedure, not by a live mode |
+| New operation mid-day | not the solver's job: the plan is taken as fixed and the job is slotted into it, priced with travel times from OSRM (the planner's Extra job tab). A drifted day is re-run with the current state as input | insertion implemented, see [extra_job.md](./extra_job.md); a full re-run is a procedure, not a live mode |
 | Chico (trailer) on a multiban or poliban, decided by the solver | each truck listed twice (plain and with chico, own `capacities` and a multiplier on its `per_km`), `vehicle_groups` caps the vehicles used at the number of trucks | native with the extension |
 | Areas a truck may not drive through | not a solver constraint at all: one routing `profile` per restricted vehicle, served by an OSRM dataset where those roads are unusable | native, outside the solver (see [No-go areas](#no-go-areas)) |
 | Order of stacking | not needed: operators reorder on site | not a constraint |
@@ -491,6 +491,26 @@ stated order: operations first, then what they cost to drive.
   defaults of [config.yml](../vroom-conf/config.yml).
 
 ## Re-planning during the day
+
+Two different answers, and the planner implements the second one.
+
+**Fitting one job in.** When a single operation comes in mid-morning,
+the plan on screen is taken as fixed and the job is slotted into it: one
+truck's route changes, by a detour the planner reads in a line, and
+everybody else's day is untouched. No solver is involved — once the plan
+is fixed, all that is missing to price a detour is how long the roads
+take, which comes from the same OSRM instances the plan was built on.
+This is the planner's Extra job tab, described in
+[extra_job.md](./extra_job.md). It is the right answer for the case it
+covers, because a dispatcher on the phone needs a change small enough
+to be told to one driver, and because a plan that reshuffles work
+already done is a fiction.
+
+**Re-solving the rest of the day.** When the day has drifted far enough
+from its plan — several new operations, a breakdown, a truck two hours
+late — the answer is a new run from the current state, which is what the
+rest of this section describes and what nothing in the planner does
+today.
 
 VROOM has no incremental mode, but a new run from the current state is
 cheap at this scale, and the OSRM instance that backs VROOM provides
