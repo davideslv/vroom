@@ -242,13 +242,22 @@
   body.drawing #map { cursor: crosshair; }
   /* always-reachable action bar, outside the scrolling panel */
   #actions {
-    display: flex; gap: 8px; flex: none; padding: 12px 14px;
+    flex: none; padding: 12px 14px;
     background: var(--panel); border-top: 1px solid var(--line);
     box-shadow: 0 -3px 10px rgba(17,23,37,.05);
   }
   #actions[hidden] { display: none; }
+  #actions .bar { display: flex; gap: 8px; }
+  #actions .bar[hidden] { display: none; }
   #actions button { flex: 1; padding: 10px 12px; font-size: 13.5px; }
   #actions button.primary { flex: 2; }
+
+  /* the two steps of the Plan tab, and the heading that names one */
+  .step { display: flex; flex-direction: column; gap: 12px; }
+  .step[hidden] { display: none; }
+  .step-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+  .step-head h2 { margin: 0; font-size: 14.5px; font-weight: 650; letter-spacing: -.01em; color: var(--ink); }
+  .step-head .n { font-size: 12px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
 
   /* the scenarios, side by side: one row per plan, the shown one selected */
   #scenarios:empty { display: none; }
@@ -439,7 +448,17 @@
     </header>
 
     <!-- ===== Plan tab ===== -->
+    <!-- Two steps, one on screen at a time: the day being put
+         together, and the plans found for it. The footer offers what
+         the step on screen can do, which is the whole of the
+         navigation between them (see showStep). Nothing about how a
+         day is solved changed with the split; the same elements are
+         filled by the same code, only under one wrapper or the
+         other. -->
     <div class="panel" id="tab-solve">
+      <div class="step" id="step-manage">
+      <div class="step-head"><h2>Gestão de operações</h2><span class="n" id="manageCount"></span></div>
+
       <fieldset>
         <legend>Nova operação</legend>
         <div class="grid2">
@@ -468,6 +487,10 @@
       </fieldset>
 
       <div id="problems"></div>
+      </div>
+
+      <div class="step" id="step-solutions" hidden>
+      <div class="step-head"><h2>Soluções apresentadas</h2><span class="n" id="solutionCount"></span></div>
 
       <!-- The day planned under each scenario (see the scenarios block
            of docs/waste_defaults.json): one row per plan with what it
@@ -477,6 +500,7 @@
       <div id="scenarios"></div>
 
       <div id="summary"></div>
+      </div>
     </div>
 
     <!-- ===== Extra job tab ===== -->
@@ -650,9 +674,17 @@
       <!-- <div class="hint">Tudo neste separador parte de <code>docs/waste_defaults.json</code>, ao lado das regras de carga em <code>docs/waste_rules.json</code>. As alterações feitas aqui vivem só neste separador do navegador — edite esse ficheiro para mudar os valores por omissão.</div> -->
     </div>
 
+    <!-- One footer, one row of buttons per step: what a step can do is
+         also how you leave it. -->
     <footer id="actions">
-      <button id="solve" class="primary">Planear o dia</button>
-      <button id="clear">Limpar</button>
+      <div class="bar" id="actions-manage">
+        <button id="solve" class="primary">Encontrar plano</button>
+        <button id="clear">Limpar</button>
+        <button id="showSolutions" hidden>Ver soluções</button>
+      </div>
+      <div class="bar" id="actions-solutions" hidden>
+        <button id="backToManage">Voltar à gestão de operações</button>
+      </div>
     </footer>
   </div>
 </div>
@@ -1302,7 +1334,7 @@ function addOperation(lat, lng) {
     priority: 0,
   };
   operations.push(op);
-  routeLayer.clearLayers();
+  clearPlan();
   renderPoints();
   return op;
 }
@@ -1617,17 +1649,20 @@ function opRow(op, color, unassigned, partial) {
   const size = document.createElement("select");
   fillSizeSelect(size, op.size);
   size.disabled = !M.OPERATION_TYPES[op.type].needsSize;
-  type.onchange = () => { op.type = type.value; routeLayer.clearLayers(); renderPoints(); };
-  size.onchange = () => { op.size = Number(size.value); routeLayer.clearLayers(); renderPoints(); };
+  type.onchange = () => { op.type = type.value; clearPlan(); renderPoints(); };
+  size.onchange = () => { op.size = Number(size.value); clearPlan(); renderPoints(); };
 
   const prio = document.createElement("input");
   prio.type = "number"; prio.min = "0"; prio.max = "100"; prio.value = op.priority;
   prio.title = "prioridade (0–100, quanto maior mais tarde é descartada)";
-  prio.oninput = () => { op.priority = Math.max(0, Math.min(100, Number(prio.value) || 0)); };
+  prio.oninput = () => {
+    op.priority = Math.max(0, Math.min(100, Number(prio.value) || 0));
+    clearPlan();
+  };
 
   li.append(tag, mark.firstElementChild, id, type, size, prio, removeButton(() => {
     operations = operations.filter((x) => x.id !== op.id);
-    routeLayer.clearLayers();
+    clearPlan();
     renderPoints();
   }));
   return li;
@@ -1657,9 +1692,39 @@ function renderProblems() {
   return errors;
 }
 
+// Which of the two steps of the Plan tab is on screen. The day is put
+// together in "manage" and the plans found for it are read in
+// "solutions"; solving moves from one to the other, and the footer
+// moves back. Nothing about the solving itself knows about this: the
+// same elements are filled by the same code either way.
+let planStep = "manage";
+
+function showStep(name) {
+  planStep = name;
+  document.getElementById("step-manage").hidden = name !== "manage";
+  document.getElementById("step-solutions").hidden = name !== "solutions";
+  document.getElementById("actions-manage").hidden = name !== "manage";
+  document.getElementById("actions-solutions").hidden = name !== "solutions";
+  // The panel is one scroller for both steps, so without this a step
+  // opens wherever the other one was left.
+  document.getElementById("tab-solve").scrollTop = 0;
+  updateSolveButton();
+}
+
 function updateSolveButton() {
   const total = M.TYPE_ORDER.reduce((n, t) => n + (fleet[t] || 0), 0);
   document.getElementById("solve").disabled = operations.length === 0 || total === 0;
+  // The way back to a plan that is still good. It is only offered
+  // while there is one: clearPlan takes it away, which is what
+  // happens the moment the day, the fleet or the prices change.
+  const planned = scenarioRuns.some((r) => r.stats);
+  document.getElementById("showSolutions").hidden = !planned;
+  document.getElementById("manageCount").textContent = operations.length
+    ? plural(operations.length, "operação", "operações")
+    : "";
+  document.getElementById("solutionCount").textContent = planned
+    ? plural(operations.length, "operação", "operações")
+    : "";
 }
 
 // How much earlier each truck type may go out, one row per type like
@@ -2418,6 +2483,10 @@ function clearPlan() {
   routeLayer.clearLayers();
   document.getElementById("scenarios").innerHTML = "";
   document.getElementById("summary").innerHTML = "";
+  // There is nothing left to read, so the step that reads it is not
+  // somewhere to be standing.
+  if (planStep === "solutions") showStep("manage");
+  else updateSolveButton();
 }
 
 // ---------- actions ----------
@@ -2495,6 +2564,12 @@ document.getElementById("solve").onclick = async () => {
     }
   }
 
+  // Everything that could keep the day from being planned has now had
+  // its say, so this is the moment the question changes from what to
+  // do to what it would cost. The rows are already on screen saying
+  // "a planear…", and they fill in as the answers come back.
+  showStep("solutions");
+
   try {
     for (const run of scenarioRuns) {
       const label = scenarioRuns.length > 1 ? ` (${run.scenario.label})` : "";
@@ -2528,6 +2603,12 @@ document.getElementById("solve").onclick = async () => {
     updateSolveButton();
   }
 };
+
+document.getElementById("showSolutions").onclick = () => showStep("solutions");
+// Going back changes nothing: the plan, its routes on the map and the
+// scenario it was read under are all still there to come back to, and
+// only an edit to the day itself throws them away.
+document.getElementById("backToManage").onclick = () => showStep("manage");
 
 // Clears the day, not the configuration: the company stays where Config
 // put it.
