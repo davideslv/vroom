@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Planeador de transporte de resíduos</title>
+<title>Logística de resíduos</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
@@ -146,11 +146,17 @@
   .field select { width: 100%; }
   .field input[type=number] { width: 100%; text-align: left; }
 
-  /* legend of operation kinds */
-  .legend { display: flex; flex-wrap: wrap; gap: 5px 12px; margin-top: 11px; padding-top: 10px; border-top: 1px dashed var(--line); }
-  .legend div { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--ink-2); }
+  /* key to the pins: a list row chip, and the map control made of them */
   .chip { width: 18px; height: 18px; flex: none; border-radius: 6px; display: grid; place-items: center; background: var(--c, var(--brand)); }
   .chip svg { display: block; }
+  .map-legend {
+    background: rgba(255,255,255,.93); border: 1px solid rgba(17,23,37,.12);
+    border-radius: 8px; box-shadow: var(--shadow-lg); padding: 7px 10px 8px;
+    display: flex; flex-direction: column; gap: 4px;
+    font-size: 13px; font-weight: 500; color: var(--ink-2); line-height: 1.3;
+  }
+  .map-legend div { display: flex; align-items: center; gap: 7px; }
+  .map-legend .chip { width: 24px; height: 24px; border-radius: 5px; }
 
   /* operation / fleet rows */
   ul.list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
@@ -418,8 +424,8 @@
       <div class="brand">
         <span class="logo"><svg width="19" height="19" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M1.6 11.6V4.9h7v6.7"/><path d="M8.6 7.3h2.9l2.9 2.7v1.6"/><circle cx="4.6" cy="12.4" r="1.4"/><circle cx="11.5" cy="12.4" r="1.4"/></svg></span>
         <div>
-          <h1>Planeador de transporte de resíduos</h1>
-          <p class="sub">Carregue no mapa, escreva coordenadas ou importe um CSV</p>
+          <h1>Logística de resíduos</h1>
+          <!-- <p class="sub">Carregue no mapa, escreva coordenadas ou importe um CSV</p> -->
         </div>
       </div>
       <div id="status"><span class="dot"></span><span class="txt">A verificar o otimizador…</span></div>
@@ -445,7 +451,6 @@
           <div class="field"><span>Longitude</span><input id="newLng" type="number" step="0.000001" placeholder="-8.61099" /></div>
           <button id="addOp">Adicionar</button>
         </div>
-        <div class="legend" id="opLegend"></div>
         <div class="hint">Carregue em qualquer ponto do mapa, ou escreva uma latitude e uma longitude, para acrescentar uma operação com estas definições. A empresa é fixa; a sua sede define-se na Configuração.</div>
       </fieldset>
 
@@ -725,50 +730,87 @@ const COMPANY_COLOR = "#111725";
 const COMPANY_GLYPH = '<path d="M2.6 8 8 3.4 13.4 8"/><path d="M4.4 7.2v5.4h7.2V7.2"/><path d="M6.9 12.6V9.6h2.2v3"/>';
 const UNASSIGNED_COLOR = "#98a2b3";
 
+// The company is not an operation, but it is drawn like one — a pin
+// on the map, a chip in a list — so it is described the same way. Its
+// glyph is the denser of the two, hence the lighter stroke at chip
+// size, where 1.7 would close the windows of the house up.
+const COMPANY_STYLE = { color: COMPANY_COLOR, glyph: COMPANY_GLYPH, chipStroke: 1.5 };
+
+// How big the pins are drawn. The shapes below are written in their
+// own coordinates and only the size they are rendered at is scaled,
+// so this one number is the whole of it: 1 is the size the map was
+// first drawn at, and much past 1.4 the pins start hiding the streets
+// they stand on. Change it and reload; nothing else needs touching.
+const PIN_SCALE = 1.15;
+
+// Each pin in its own coordinates: the size of the drawing, where its
+// tip sits (the point on the map it marks) and how far above that tip
+// a tooltip hangs. All three are scaled by PIN_SCALE together, so a
+// bigger pin still points at exactly the same place.
+const PIN_BOX = { w: 34, h: 38, tip: [14, 35], tooltip: -30 };
+const COMPANY_PIN_BOX = { w: 34, h: 44, tip: [17, 42], tooltip: -36 };
+
 function glyphGroup(glyph, tx, ty, scale, width) {
   return `<g transform="translate(${tx} ${ty})${scale !== 1 ? ` scale(${scale})` : ""}" fill="none" stroke="#fff" ` +
     `stroke-width="${width}" stroke-linecap="round" stroke-linejoin="round">${glyph}</g>`;
 }
 
-// Small square chip used in the legend and in every operation row.
-function chip(type, color) {
-  const st = OP_STYLE[type];
-  return `<span class="chip" style="--c:${color || st.color}">` +
-    `<svg width="12" height="12" viewBox="0 0 16 16">${glyphGroup(st.glyph, 0, 0, 1, 1.7)}</svg></span>`;
+// Small square chip used in the key and in every operation row: the
+// same glyph the pin carries, at list size. `style` is an OP_STYLE
+// entry or COMPANY_STYLE; `color` overrides its colour, for an
+// operation drawn in the colour of the route that does it.
+function chip(style, color) {
+  return `<span class="chip" style="--c:${color || style.color}">` +
+    `<svg width="18" height="18" viewBox="0 0 16 16">` +
+    `${glyphGroup(style.glyph, 0, 0, 1, style.chipStroke || 1.7)}</svg></span>`;
 }
 
-// Teardrop pin, 34x38, tip at (14,35): glyph tells the operation kind,
+// One Leaflet icon from a pin's SVG body. The viewBox keeps the box's
+// own coordinates, so the shapes never have to know what scale they
+// are drawn at: everything Leaflet is told about the icon is scaled
+// here and nowhere else.
+function pinIcon(body, box, className) {
+  // Rounded only so the numbers in the DOM stay readable: a scale of
+  // 1.15 otherwise writes 39.099999999999994 into every pin.
+  const px = (n) => Math.round(n * PIN_SCALE * 100) / 100;
+  const w = px(box.w);
+  const h = px(box.h);
+  return L.divIcon({
+    className: "pin-icon",
+    html: `<div class="${className}"><svg width="${w}" height="${h}" viewBox="0 0 ${box.w} ${box.h}"` +
+          ` xmlns="http://www.w3.org/2000/svg">${body}</svg></div>`,
+    iconSize: [w, h],
+    iconAnchor: [px(box.tip[0]), px(box.tip[1])],
+    tooltipAnchor: [0, px(box.tooltip)],
+  });
+}
+
+// Teardrop pin, tip at the bottom: the glyph tells the operation kind,
 // the badge carries the operation id, the fill is the route colour once
 // the day has been planned.
 function opPin(op, color) {
   const st = OP_STYLE[op.type];
   const dim = color === UNASSIGNED_COLOR;
-  const html =
-    `<div class="pin${dim ? " dim" : ""}">` +
-    `<svg width="34" height="38" viewBox="0 0 34 38" xmlns="http://www.w3.org/2000/svg">` +
-      `<circle class="halo" cx="14" cy="14" r="13.5" fill="${color}"/>` +
-      `<path d="M14 34.6C14 34.6 24.5 21.6 24.5 14A10.5 10.5 0 1 0 3.5 14C3.5 21.6 14 34.6 14 34.6Z"` +
-      ` fill="${color}" stroke="#fff" stroke-width="2" stroke-linejoin="round"/>` +
-      glyphGroup(st.glyph, 6, 6, 1, 1.7) +
-      `<circle cx="26" cy="7.5" r="7" fill="#fff" stroke="${color}" stroke-width="1.6"/>` +
-      `<text x="26" y="7.5" dy="3.1" text-anchor="middle" font-size="8.5" font-weight="700"` +
-      ` fill="#111725" font-family="ui-sans-serif, system-ui, sans-serif">${op.id}</text>` +
-    `</svg></div>`;
-  return L.divIcon({ className: "pin-icon", html, iconSize: [34, 38], iconAnchor: [14, 35], tooltipAnchor: [0, -30] });
+  const body =
+    `<circle class="halo" cx="14" cy="14" r="13.5" fill="${color}"/>` +
+    `<path d="M14 34.6C14 34.6 24.5 21.6 24.5 14A10.5 10.5 0 1 0 3.5 14C3.5 21.6 14 34.6 14 34.6Z"` +
+    ` fill="${color}" stroke="#fff" stroke-width="2" stroke-linejoin="round"/>` +
+    glyphGroup(st.glyph, 6, 6, 1, 1.7) +
+    `<circle cx="26" cy="7.5" r="7" fill="#fff" stroke="${color}" stroke-width="1.6"/>` +
+    `<text x="26" y="7.5" dy="3.1" text-anchor="middle" font-size="8.5" font-weight="700"` +
+    ` fill="#111725" font-family="ui-sans-serif, system-ui, sans-serif">${op.id}</text>`;
+  return pinIcon(body, PIN_BOX, `pin${dim ? " dim" : ""}`);
 }
 
 // The company sits a size up and in near-black, so the base of every
 // route reads at a glance.
 function companyPin() {
-  const html =
-    `<div class="pin">` +
-    `<svg width="34" height="44" viewBox="0 0 34 44" xmlns="http://www.w3.org/2000/svg">` +
-      `<circle class="halo" cx="17" cy="17" r="16" fill="${COMPANY_COLOR}"/>` +
-      `<path d="M17 42C17 42 29.5 26.4 29.5 17A12.5 12.5 0 1 0 4.5 17C4.5 26.4 17 42 17 42Z"` +
-      ` fill="${COMPANY_COLOR}" stroke="#fff" stroke-width="2.4" stroke-linejoin="round"/>` +
-      glyphGroup(COMPANY_GLYPH, 6.5, 6.5, 1.31, 1.35) +
-    `</svg></div>`;
-  return L.divIcon({ className: "pin-icon", html, iconSize: [34, 44], iconAnchor: [17, 42], tooltipAnchor: [0, -36] });
+  const body =
+    `<circle class="halo" cx="17" cy="17" r="16" fill="${COMPANY_COLOR}"/>` +
+    `<path d="M17 42C17 42 29.5 26.4 29.5 17A12.5 12.5 0 1 0 4.5 17C4.5 26.4 17 42 17 42Z"` +
+    ` fill="${COMPANY_COLOR}" stroke="#fff" stroke-width="2.4" stroke-linejoin="round"/>` +
+    glyphGroup(COMPANY_GLYPH, 6.5, 6.5, 1.31, 1.35);
+  return pinIcon(body, COMPANY_PIN_BOX, "pin");
 }
 
 // ---------- tabs ----------
@@ -808,9 +850,6 @@ const opSizeSel = document.getElementById("opSize");
 fillTypeSelect(opTypeSel, "exchange");
 fillSizeSelect(opSizeSel, 6);
 opTypeSel.onchange = () => { opSizeSel.disabled = !M.OPERATION_TYPES[opTypeSel.value].needsSize; };
-
-document.getElementById("opLegend").innerHTML = Object.entries(M.OPERATION_TYPES)
-  .map(([key, t]) => `<div>${chip(key)}${esc(t.short)}</div>`).join("");
 
 // ---------- map ----------
 const map = L.map("map", { zoomControl: false }).setView([M.COMPANY.lat, M.COMPANY.lng], 13);
@@ -891,6 +930,25 @@ const MutedControl = L.Control.extend({
 });
 map.addControl(new MutedControl());
 setBasemap("muted");
+
+// The key to the pins. It explains what is drawn on the map, so it
+// sits on the map rather than in the panel, out of the way in the
+// bottom right above the attribution. The company is in it too: it is
+// a pin like any other and the one nobody is told the meaning of.
+const LegendControl = L.Control.extend({
+  options: { position: "bottomright" },
+  onAdd() {
+    const box = L.DomUtil.create("div", "map-legend");
+    box.innerHTML =
+      `<div>${chip(COMPANY_STYLE)}<span>Empresa</span></div>` +
+      Object.entries(M.OPERATION_TYPES)
+        .map(([key, t]) => `<div>${chip(OP_STYLE[key])}<span>${esc(t.short)}</span></div>`)
+        .join("");
+    L.DomEvent.disableClickPropagation(box);
+    return box;
+  },
+});
+map.addControl(new LegendControl());
 
 const zoneLayer = L.layerGroup().addTo(map);  // below everything else
 const routeLayer = L.layerGroup().addTo(map); // below the markers
@@ -1492,8 +1550,7 @@ function renderPoints(unassignedOps = new Set(), opColor = {}, partialOps = new 
   const site = document.createElement("li");
   site.className = "company";
   site.innerHTML =
-    `<span class="chip" style="--c:${COMPANY_COLOR}"><svg width="12" height="12" viewBox="0 0 16 16">` +
-    `${glyphGroup(COMPANY_GLYPH, 0, 0, 1, 1.5)}</svg></span>` +
+    chip(COMPANY_STYLE) +
     `<span class="name">Empresa</span>` +
     `<span class="coords">${depot.lat.toFixed(5)}, ${depot.lng.toFixed(5)}</span>` +
     `<span class="fixed" title="os camiões começam e acabam aqui">fixa</span>`;
@@ -1548,7 +1605,7 @@ function opRow(op, color, unassigned, partial) {
   tag.style.setProperty("--rc", color);
 
   const mark = document.createElement("span");
-  mark.innerHTML = chip(op.type, unassigned ? UNASSIGNED_COLOR : OP_STYLE[op.type].color);
+  mark.innerHTML = chip(OP_STYLE[op.type], unassigned ? UNASSIGNED_COLOR : null);
   const id = document.createElement("span");
   id.className = "id";
   id.textContent = partial ? `#${op.id}*` : `#${op.id}`;
@@ -2124,7 +2181,7 @@ function showSolution(run) {
   const opColor = {};
   const cards = [];
   const shifts = shiftsOfPlan();
-  const { truckList, trucksUsed, unassignedOps, partialOps } = st;
+  const { truckList, unassignedOps, partialOps } = st;
 
   truckList.forEach((truck, i) => {
     const color = COLORS[i % COLORS.length];
@@ -2188,7 +2245,10 @@ function showSolution(run) {
       chicoNote = wholeDay ? " · chico" : ` · chico de ${chicoShifts.join(" e de ")}`;
     }
     const earlyNote = earlyBy > 0 ? ` · ${fmtDuration(earlyBy)} mais cedo` : "";
-    cards.push(`<details class="route" style="--rc:${color}"${trucksUsed <= 3 ? " open" : ""}>
+    // Closed to start with, however few trucks went out: the summary
+    // above is what a plan is read on, and a truck's stops are opened
+    // when there is a reason to look at that one truck.
+    cards.push(`<details class="route" style="--rc:${color}">
       <summary><span class="swatch"></span><span class="name">${esc(name)}</span>
         <span class="meta">${clientStops} ${clientStops === 1 ? "paragem" : "paragens"} · ${fmtDuration(time)}${km}${chicoNote}${earlyNote}</span>
       </summary>
