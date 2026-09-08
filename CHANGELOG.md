@@ -16,6 +16,7 @@
 
 - Add include to fix `std::counting_semaphore` usage (#1333)
 - `RouteSplit` now respects `vehicle_groups`: it opens two empty routes at once, and a group limit that each of them satisfied on its own could be exceeded by the pair
+- `RouteExchange` now accounts for fixed costs when one of the two routes is empty: `t_gain` used the source vehicle's route eval instead of the target's, and neither branch charged the fixed cost newly incurred by a vehicle that had no route and ends up with one. A route could not be moved onto an idle vehicle that was cheaper only in its fixed cost, so a plan could keep paying for a vehicle it had no reason to use
 
 ## [v1.15.0] - 2026-03-12
 
