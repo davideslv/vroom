@@ -6,6 +6,9 @@
 <title>Waste transport planner</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script src="https://unpkg.com/@maplibre/maplibre-gl-leaflet@0.1.0/leaflet-maplibre-gl.js"></script>
 <script src="rules.js"></script>
 <script src="defaults.js"></script>
 <script src="zones.js"></script>
@@ -378,7 +381,8 @@
   .leaflet-bar { border: 1px solid rgba(17,23,37,.12) !important; border-radius: 8px !important; box-shadow: var(--shadow-lg); overflow: hidden; }
   .leaflet-control-attribution { font-size: 10px; background: rgba(255,255,255,.82); }
   .map-toggle a { display: grid !important; place-items: center; }
-  #map.muted .leaflet-tile-pane { filter: saturate(.38) brightness(1.07) contrast(.93); }
+  .leaflet-gl-layer canvas { outline: none; }
+  #map.no-webgl.muted .leaflet-tile-pane { filter: saturate(.38) brightness(1.07) contrast(.93); }
 
   /* ========================== costs tab ========================== */
   #costPerKm li .name, #costChico li .name { font-weight: 600; flex: 1; }
@@ -812,14 +816,60 @@ const map = L.map("map", { zoomControl: false }).setView([M.COMPANY.lat, M.COMPA
 L.control.zoom({ position: "topright" }).addTo(map);
 L.control.scale({ imperial: false, position: "bottomleft" }).addTo(map);
 
-L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-  maxZoom: 19,
-  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-}).addTo(map);
-
 // The standard OSM tiles are colourful enough to fight with the pins and the
-// route lines, so the basemap is desaturated by default (CSS, no extra tile
-// provider) with a control to get the full colours back.
+// route lines, so the basemap is CARTO's Positron: the same OpenStreetMap data
+// drawn in greys, as a MapLibre vector style. The control in the top right
+// swaps in Voyager when the full colours are wanted.
+const BASEMAP_ATTRIBUTION =
+  '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> ' +
+  '&copy; <a href="https://carto.com/attributions">CARTO</a>';
+
+const BASEMAPS = {
+  muted: "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
+  colour: "https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json",
+};
+
+// A vector style needs WebGL. Where there is none -- an old browser, a machine
+// whose GPU the browser has blocklisted -- the map falls back to what it used
+// before these styles: the plain OSM raster tiles, desaturated by CSS. CARTO's
+// own raster tiles are not an option, they now want an API key.
+const BASEMAP_GL = (() => {
+  if (!L.maplibreGL || !window.maplibregl) return false;
+  try {
+    const probe = document.createElement("canvas");
+    return !!(probe.getContext("webgl2") || probe.getContext("webgl"));
+  } catch {
+    return false;
+  }
+})();
+
+let baseLayer = null;
+let baseName = null;
+
+function setBasemap(name) {
+  if (name === baseName) return;
+  baseName = name;
+  map.getContainer().classList.toggle("muted", name === "muted");
+
+  if (!BASEMAP_GL) {
+    // One layer for both settings here: the CSS above is what tells them apart.
+    if (!baseLayer) {
+      baseLayer = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19,
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+      }).addTo(map);
+      map.getContainer().classList.add("no-webgl");
+    }
+    return;
+  }
+
+  // Added before the old one goes so the map never flashes empty in between.
+  const next = L.maplibreGL({ style: BASEMAPS[name], attribution: BASEMAP_ATTRIBUTION });
+  next.addTo(map);
+  if (baseLayer) map.removeLayer(baseLayer);
+  baseLayer = next;
+}
+
 const MutedControl = L.Control.extend({
   options: { position: "topright" },
   onAdd() {
@@ -832,14 +882,14 @@ const MutedControl = L.Control.extend({
       '<path d="M8 2.4v11.2"/><path d="M8 2.4a5.6 5.6 0 0 1 0 11.2z" fill="currentColor" stroke="none"/></svg>';
     L.DomEvent.on(a, "click", (e) => {
       L.DomEvent.stop(e);
-      map.getContainer().classList.toggle("muted");
+      setBasemap(baseName === "muted" ? "colour" : "muted");
     });
     L.DomEvent.disableClickPropagation(bar);
     return bar;
   },
 });
 map.addControl(new MutedControl());
-map.getContainer().classList.add("muted");
+setBasemap("muted");
 
 const zoneLayer = L.layerGroup().addTo(map);  // below everything else
 const routeLayer = L.layerGroup().addTo(map); // below the markers
