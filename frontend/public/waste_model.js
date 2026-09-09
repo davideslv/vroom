@@ -142,10 +142,10 @@
   // container of that size. Picking up a full container does not, it
   // brings one in.
   const OPERATION_TYPES = {
-    deliver_empty: { label: "Entregar contentor vazio", short: "entregar vazio", needsSize: true, takesContainerOut: true },
-    pickup_full: { label: "Recolher contentor cheio", short: "recolher cheio", needsSize: true, takesContainerOut: false },
-    exchange: { label: "Trocar vazio por cheio", short: "troca", needsSize: true, takesContainerOut: true },
-    sell_materials: { label: "Venda de materiais (contentor cheio)", short: "materiais", needsSize: true, takesContainerOut: true },
+    deliver_empty: { label: "Entrega", short: "Entrega", needsSize: true, takesContainerOut: true },
+    pickup_full: { label: "Recolha", short: "Recolha", needsSize: true, takesContainerOut: false },
+    exchange: { label: "Troca", short: "Troca", needsSize: true, takesContainerOut: true },
+    sell_materials: { label: "Venda", short: "Venda", needsSize: true, takesContainerOut: true },
   };
 
   // ---------- the cost model ----------
@@ -241,7 +241,7 @@
       key: "balanced",
       label: "Equilibrado",
       time_weight: 30,
-      hint: "Uma hora ao volante pesa aproximadamente o mesmo que os quilómetros que percorre. Meio-termo: menos estrada do que o dia mais barato, menos dinheiro do que o mais curto.",
+      hint: "Menos estrada do que o mais barato, menos dinheiro do que o mais curto.",
     },
     {
       key: "least-driving",
@@ -279,7 +279,7 @@
   // and no price for one, so a model built without a defaults file
   // behaves exactly as it did before early starts existed.
   const BUILTIN_DEFAULTS = {
-    company: { lat: 37.030558, lng: -7.976093 },
+    company: { lat: 37.03082, lng: -7.97639 },
     fleet: {},
     chicos: {},
     container_stock: {},
@@ -1206,7 +1206,7 @@
           case "deliver_empty":
             push({
               amount: oneHot(`e${size}`),
-              pickup: atCompany(base + 1, `${tag}: carregar vazio de ${size} m³ na empresa`),
+              pickup: atCompany(base + 1, `${tag}: carregar vazio de ${size} m³ na Europontal`),
               delivery: atClient(base + 2, op, `${tag}: entregar vazio de ${size} m³`),
             }, true);
             break;
@@ -1214,19 +1214,19 @@
             push({
               amount: oneHot(`f${size}`),
               pickup: atClient(base + 1, op, `${tag}: recolher cheio de ${size} m³`),
-              delivery: atCompany(base + 2, `${tag}: despejar cheio de ${size} m³ na empresa`),
+              delivery: atCompany(base + 2, `${tag}: despejar cheio de ${size} m³ na Europontal`),
             });
             break;
           case "exchange":
             push({
               amount: oneHot(`e${size}`),
-              pickup: atCompany(base + 1, `${tag}: carregar vazio de ${size} m³ na empresa`),
+              pickup: atCompany(base + 1, `${tag}: carregar vazio de ${size} m³ na Europontal`),
               delivery: atClient(base + 2, op, `${tag}: deixar vazio de ${size} m³ (troca)`),
             }, true);
             push({
               amount: oneHot(`f${size}`),
               pickup: atClient(base + 3, op, `${tag}: recolher cheio de ${size} m³ (troca)`),
-              delivery: atCompany(base + 4, `${tag}: despejar cheio de ${size} m³ na empresa`),
+              delivery: atCompany(base + 4, `${tag}: despejar cheio de ${size} m³ na Europontal`),
             });
             break;
           case "sell_materials":
@@ -1234,7 +1234,7 @@
             // at the client: a full container for the loading rules.
             push({
               amount: oneHot(`f${size}`),
-              pickup: atCompany(base + 1, `${tag}: carregar materiais (contentor de ${size} m³) na empresa`),
+              pickup: atCompany(base + 1, `${tag}: carregar materiais (contentor de ${size} m³) na Europontal`),
               delivery: atClient(base + 2, op, `${tag}: entregar materiais (contentor de ${size} m³)`),
             }, true);
             break;
@@ -1325,9 +1325,9 @@
       // own no-go zone can do nothing sensible at all.
       if (depot) {
         for (const z of zonesAt(depot.lng, depot.lat)) {
-          error(`A sede da empresa fica dentro da zona interdita "${z.name}": ` +
+          error(`A sede da Europontal fica dentro da zona interdita "${z.name}": ` +
                 `${describeProfiles(z.blockedProfiles)} não poderiam sair de lá. ` +
-                "Mova a empresa ou a zona.");
+                "Mova a Europontal ou a zona.");
         }
       }
 
@@ -1433,6 +1433,12 @@
         // already in here through OPERATION_TYPES above.
         entrega: "deliver_empty", entregar: "deliver_empty",
         colocar: "deliver_empty", vazio: "deliver_empty",
+        // The wordier names the planner used to show, so a list written
+        // against them still reads.
+        entregarcontentorvazio: "deliver_empty", entregarvazio: "deliver_empty",
+        recolhercontentorcheio: "pickup_full", recolhercheio: "pickup_full",
+        trocarvazioporcheio: "exchange",
+        vendademateriaiscontentorcheio: "sell_materials", materiais: "sell_materials",
         recolha: "pickup_full", recolher: "pickup_full",
         levantar: "pickup_full", retirar: "pickup_full", cheio: "pickup_full",
         trocar: "exchange", substituir: "exchange", substituicao: "exchange",
@@ -1617,7 +1623,7 @@
       if (!(operations || []).length) {
         lines.push(
           "# Uma linha por operação. Substitua o exemplo abaixo e apague estas notas.",
-          `# lat e lng são graus, como ${COMPANY.lat.toFixed(5)},${COMPANY.lng.toFixed(5)} — a empresa.`,
+          `# lat e lng são graus, como ${COMPANY.lat.toFixed(5)},${COMPANY.lng.toFixed(5)} — a Europontal.`,
           `# type é um de ${Object.keys(OPERATION_TYPES).join(", ")}; size é ${SIZES.join(", ")} (m3).`,
           "# priority vai de 0 a 100, quanto maior mais tarde é descartada, e pode ficar vazia.",
           `${COMPANY.lat.toFixed(6)},${COMPANY.lng.toFixed(6)},exchange,${SIZES.includes(6) ? 6 : SIZES[0]},50`);

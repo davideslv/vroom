@@ -137,27 +137,27 @@
       switch (op.type) {
         case "deliver_empty":
           return [
-            { ...company(`carregar vazio de ${size} m³ na empresa`), amount: M.oneHot(`e${size}`) },
+            { ...company(`carregar vazio de ${size} m³ na Europontal`), amount: M.oneHot(`e${size}`) },
             { ...client(`entregar vazio de ${size} m³`, times.clientService), amount: null },
           ];
         case "sell_materials":
           return [
-            { ...company(`carregar materiais (contentor de ${size} m³) na empresa`), amount: M.oneHot(`f${size}`) },
+            { ...company(`carregar materiais (contentor de ${size} m³) na Europontal`), amount: M.oneHot(`f${size}`) },
             { ...client(`entregar materiais (contentor de ${size} m³)`, times.clientService), amount: null },
           ];
         case "pickup_full":
           return [
             { ...client(`recolher cheio de ${size} m³`, times.clientService), amount: M.oneHot(`f${size}`) },
-            { ...company(`despejar cheio de ${size} m³ na empresa`), amount: null },
+            { ...company(`despejar cheio de ${size} m³ na Europontal`), amount: null },
           ];
         case "exchange":
           // One stop at the client: the empty comes off and the full
           // goes on, which is two container movements and so twice the
           // handling time, but a single visit.
           return [
-            { ...company(`carregar vazio de ${size} m³ na empresa`), amount: M.oneHot(`e${size}`) },
+            { ...company(`carregar vazio de ${size} m³ na Europontal`), amount: M.oneHot(`e${size}`) },
             { ...client(`trocar vazio por cheio de ${size} m³`, 2 * times.clientService), amount: M.oneHot(`f${size}`) },
-            { ...company(`despejar cheio de ${size} m³ na empresa`), amount: null },
+            { ...company(`despejar cheio de ${size} m³ na Europontal`), amount: null },
           ];
         default:
           throw new Error(`tipo de operação desconhecido: ${op.type}`);
@@ -516,7 +516,7 @@
 
       const planned = (step, at) => ({
         kind: step.type === "start" ? "start" : step.type === "end" ? "end" : "planned",
-        text: step.description || (step.type === "start" ? "sai da empresa" : "de volta à empresa"),
+        text: step.description || (step.type === "start" ? "sai da Europontal" : "de volta à Europontal"),
         at,
         // A trip that does not exist yet is not late: only the stops of
         // a route the driver already has can move.

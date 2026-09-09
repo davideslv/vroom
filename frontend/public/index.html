@@ -45,12 +45,29 @@
     -webkit-font-smoothing: antialiased;
   }
   #app { display: flex; height: 100%; }
-  #map { flex: 1; order: 2; background: #dfe3ea; }
+  #map { flex: 1; order: 3; background: #dfe3ea; }
+
+  /* The seam between the panel and the map, dragged to give whichever
+     of the two the day needs more of. The width lives on #app as a
+     custom property rather than on the panel itself, so the stacked
+     layout further down can still take the panel over full width. */
+  #resizer {
+    order: 2; flex: none; width: 6px; margin: 0 -3px; z-index: 600;
+    cursor: col-resize; background: none; touch-action: none;
+  }
+  #resizer::after {
+    content: ""; display: block; width: 2px; height: 100%; margin: 0 auto;
+    background: var(--brand); opacity: 0; transition: opacity .12s;
+  }
+  #resizer:hover::after, body.resizing #resizer::after { opacity: .55; }
+  /* The pointer stays on the seam while dragging, whatever it crosses. */
+  body.resizing { cursor: col-resize; user-select: none; }
+  body.resizing #map { pointer-events: none; }
 
   /* ============================= side panel ============================= */
   #side {
     order: 1;
-    width: 424px;
+    width: var(--side-w, 470px);
     flex: none;
     background: var(--panel-2);
     border-right: 1px solid var(--line);
@@ -93,6 +110,17 @@
   }
   .tabs button:hover { color: var(--ink-2); background: none; }
   .tabs button.active { color: var(--brand); border-bottom-color: var(--brand); }
+  /* Solving moves to the Plano tab; this is the tab saying it was the
+     one that moved, briefly, instead of the change happening silently. */
+  .tabs button.just-solved { animation: tab-arrived 1.1s ease-out 1; }
+  @keyframes tab-arrived {
+    0%   { background: var(--brand-soft); }
+    70%  { background: var(--brand-soft); }
+    100% { background: none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .tabs button.just-solved { animation: none; }
+  }
 
   .panel {
     padding: 14px; overflow-y: auto; background: var(--panel-2);
@@ -170,6 +198,42 @@
   ul.list li select { font-size: 12px; padding: 3px 4px; }
   ul.list li input[type=number] { width: 46px; font-size: 12px; padding: 3px 5px; }
   ul.list li .type { flex: 1; min-width: 0; }
+  ul.list li select.size { width: 74px; flex: none; }
+  #points li input[type=number] { width: 58px; }
+  /* The day counted by kind, above the list it summarises. Louder than
+     the heading it replaces, since it is the one number a planner
+     checks against the paperwork. */
+  .tally {
+    display: flex; align-items: center; flex-wrap: wrap; gap: 6px 13px;
+    margin-bottom: 10px; padding-bottom: 9px; border-bottom: 1px solid var(--line);
+    font-size: 13px; color: var(--ink-2); font-variant-numeric: tabular-nums;
+  }
+  .tally[hidden] { display: none; }
+  .tally .t { display: flex; align-items: center; gap: 5px; }
+  .tally .t b { font-weight: 700; color: var(--ink); }
+  .tally .t.zero { opacity: .35; }
+  .tally .total {
+    margin-left: auto; font-size: 10px; font-weight: 700;
+    letter-spacing: .05em; text-transform: uppercase; color: var(--ink-3);
+  }
+  .tally .total b { font-size: 14px; color: var(--ink); margin-left: 5px; }
+  .tally em { font-style: normal; color: var(--ink-2); }
+
+  /* Column headings for the rows below. The leading spacer covers the
+     colour tag, the chip and the operation letter; every other width is
+     the one the matching control has, so the labels sit over what they
+     name. */
+  .list-head {
+    display: flex; align-items: center; gap: 6px; padding: 0 8px 5px;
+    font-size: 10px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase;
+    color: var(--ink-3);
+  }
+  .list-head[hidden] { display: none; }
+  .list-head .h-lead { width: 55px; flex: none; }
+  .list-head .h-type { flex: 1; min-width: 0; }
+  .list-head .h-size { width: 74px; flex: none; }
+  .list-head .h-prio { width: 58px; flex: none; }
+  .list-head .h-x { width: 22px; flex: none; }
   ul.list li .x {
     margin-left: auto; padding: 0; width: 22px; height: 22px; flex: none;
     display: grid; place-items: center; font-size: 15px; line-height: 1;
@@ -180,11 +244,8 @@
   #points .id { font-weight: 700; color: var(--ink-2); min-width: 22px; font-variant-numeric: tabular-nums; }
   #points li.company { background: #fff; border-style: dashed; }
   #points li.company .name { font-weight: 600; }
-  #points li.company .coords { color: var(--ink-3); font-variant-numeric: tabular-nums; font-size: 11.5px; }
-  #points li.company .fixed {
-    margin-left: auto; font-size: 10px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase;
-    color: var(--ink-3); background: var(--panel-2); border: 1px solid var(--line);
-    border-radius: 999px; padding: 1px 7px; cursor: default;
+  #points li.company .coords {
+    margin-left: auto; color: var(--ink-3); font-variant-numeric: tabular-nums; font-size: 11.5px;
   }
   .route-tag { width: 4px; align-self: stretch; border-radius: 2px; background: var(--rc, transparent); flex: none; margin: -6px 2px -6px -3px; }
   .empty { padding: 16px 4px; text-align: center; color: var(--ink-3); font-size: 12.5px; }
@@ -230,7 +291,14 @@
   #zoneState.ok { background: #f0fdf4; border: 1px solid #bbf7d0; color: var(--ok); }
   #zoneState.stale { background: #fffbeb; border: 1px solid #fde68a; color: var(--warn); }
   #zoneState.err { background: #fef2f2; border: 1px solid #fecaca; color: var(--danger); }
-  #zoneState.busy { background: var(--panel); border: 1px solid var(--line); }
+  /* Still finding out, or still building: the box breathes so the wait
+     reads as a wait and not as an answer. */
+  #zoneState.busy {
+    background: var(--panel); border: 1px solid var(--line); color: var(--ink-3);
+    animation: zone-wait 1.5s ease-in-out infinite;
+  }
+  @keyframes zone-wait { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }
+  @media (prefers-reduced-motion: reduce) { #zoneState.busy { animation: none; } }
   /* overflow-wrap: a fieldset is as wide as its widest unbreakable
      word by default, and a build log is full of long paths. */
   #zoneState code {
@@ -253,8 +321,6 @@
   #actions button.primary { flex: 2; }
 
   /* the two steps of the Plan tab, and the heading that names one */
-  .step { display: flex; flex-direction: column; gap: 12px; }
-  .step[hidden] { display: none; }
   .step-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
   .step-head h2 { margin: 0; font-size: 14.5px; font-weight: 650; letter-spacing: -.01em; color: var(--ink); }
   .step-head .n { font-size: 12px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
@@ -278,14 +344,20 @@
   .scen-hdr span { text-align: right; }
   .scen {
     width: 100%; text-align: left; font: inherit; cursor: pointer;
-    background: none; border: 0; border-top: 1px solid var(--line-2); border-radius: 0;
+    background: var(--panel-2); border: 0; border-top: 1px solid var(--line-2); border-radius: 0;
     padding: 6px 10px 7px;
   }
   .scen:first-of-type { border-top: 0; }
-  .scen:hover:not(:disabled) { background: var(--panel-2); }
-  .scen.active { background: var(--brand-soft); box-shadow: inset 3px 0 0 var(--brand); cursor: default; }
+  .scen:hover:not(:disabled) { background: var(--panel); }
+  /* The plan on the map is the clear row, with the brand down its edge;
+     the ones not chosen sit back. It is a disabled button — there is
+     nothing left to click on the row already shown — so the general
+     dimming of disabled buttons has to be lifted here, or the chosen
+     plan would be the faintest thing on screen. */
+  .scen.active { background: var(--panel); box-shadow: inset 3px 0 0 var(--brand); cursor: default; }
+  .scen.active:disabled { opacity: 1; }
   .scen:disabled:not(.active) { cursor: default; }
-  .scen .label { display: flex; flex-direction: column; font-size: 12.5px; font-weight: 650; color: var(--ink); min-width: 0; }
+  .scen .label { display: flex; flex-direction: column; font-size: 12.5px; font-weight: 650; color: var(--ink-2); min-width: 0; }
   .scen.active .label { color: var(--brand-dark); }
   .scen .c { display: flex; flex-direction: column; align-items: flex-end; font-variant-numeric: tabular-nums; }
   .scen .c b { font-size: 12.5px; font-weight: 600; color: var(--ink-2); white-space: nowrap; }
@@ -318,6 +390,15 @@
   .route .swatch { width: 10px; height: 10px; flex: none; border-radius: 3px; background: var(--rc); box-shadow: 0 0 0 2px #fff, 0 0 0 3px rgba(17,23,37,.12); }
   .route .name { font-weight: 600; font-size: 13px; }
   .route .meta { margin-left: auto; font-size: 11.5px; color: var(--ink-3); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  /* The default marker is hidden above, so the card would look like a
+     row that does nothing. This is the arrow that says it opens. */
+  .route > summary::after {
+    content: ""; flex: none; width: 6px; height: 6px; margin: 0 2px 0 4px;
+    border-right: 1.6px solid var(--ink-3); border-bottom: 1.6px solid var(--ink-3);
+    transform: translateY(-2px) rotate(45deg); transition: transform .15s ease-out;
+  }
+  .route[open] > summary::after { transform: translateY(1px) rotate(-135deg); }
+  .route > summary:hover::after { border-color: var(--ink-2); }
   .route ol { list-style: none; margin: 0; padding: 6px 11px 10px; border-top: 1px solid var(--line-2); }
   .route ol li { display: flex; gap: 8px; font-size: 12px; color: var(--ink-2); padding: 3px 0 3px 14px; position: relative; }
   .route ol li::before {
@@ -333,6 +414,28 @@
   #summary details.raw pre { font-size: 11px; white-space: pre-wrap; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 8px; max-height: 240px; overflow: auto; }
 
   .hint { font-size: 12px; color: var(--ink-3); line-height: 1.45; }
+  /* One line of a file, which says more about the format than a
+     paragraph about it does. It scrolls rather than squeezing the
+     panel, since a longitude is as wide as it is. */
+  .format-ask {
+    display: flex; align-items: center; gap: 8px; margin-top: 8px;
+    font-size: 12px; color: var(--ink-3);
+  }
+  .format-ask[hidden] { display: none; }
+  .format-ask button { flex: 1; }
+  .sample-wrap { margin-top: 10px; overflow-x: auto; }
+  table.sample {
+    border-collapse: collapse; font-size: 11.5px;
+    color: var(--ink-2); font-variant-numeric: tabular-nums;
+  }
+  table.sample caption {
+    caption-side: top; text-align: left; padding-bottom: 5px;
+    font-size: 12px; color: var(--ink-3);
+  }
+  table.sample th, table.sample td {
+    border: 1px solid var(--line); padding: 4px 7px; text-align: left; white-space: nowrap;
+  }
+  table.sample th { background: var(--panel); color: var(--ink-3); font-weight: 600; }
   .hint code { font-size: 11.5px; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; color: var(--ink-2); }
   fieldset > .hint:last-child { margin-top: 10px; }
 
@@ -347,9 +450,31 @@
     font-size: 13.5px; font-weight: 650; color: var(--ink);
   }
   .extra-head span { font-weight: 400; font-size: 11.5px; color: var(--ink-3); }
+  .sub-legend {
+    font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+    color: var(--ink-3); margin: 14px 0 9px; padding-top: 12px; border-top: 1px solid var(--line-2);
+  }
   #extraResult:empty { display: none; }
   #extraResult { display: flex; flex-direction: column; gap: 10px; }
   .ro { display: flex; align-items: center; height: 33px; font-size: 12.5px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+  /* The clock, and what the plan looks like at the hour on it. The two
+     figures move as the clock moves, so they are boxed as readings
+     rather than written out as a sentence, which read as fixed. */
+  .now-row { display: flex; align-items: center; gap: 10px; }
+  .road {
+    margin-left: auto; display: flex; gap: 1px; background: var(--line);
+    border: 1px solid var(--line); border-radius: var(--r-sm); overflow: hidden;
+  }
+  .road[hidden] { display: none; }
+  .road span {
+    display: flex; flex-direction: column; align-items: center;
+    background: var(--panel); padding: 3px 13px 4px;
+  }
+  .road b { font-size: 15px; font-weight: 650; color: var(--ink); font-variant-numeric: tabular-nums; line-height: 1.25; }
+  .road i {
+    font-style: normal; font-size: 9.5px; font-weight: 600; letter-spacing: .05em;
+    text-transform: uppercase; color: var(--ink-3); white-space: nowrap;
+  }
   .notice { font-size: 12px; line-height: 1.45; border-radius: var(--r); padding: 9px 11px; background: var(--panel); border: 1px solid var(--line); color: var(--ink-2); }
   .notice.err { background: #fef2f2; border-color: #fecaca; color: var(--danger); }
   .notice.warn { background: #fffbeb; border-color: #fde68a; color: var(--warn); }
@@ -412,29 +537,26 @@
   #costPerKm li .unit, #costChico li .unit { color: var(--ink-3); font-size: 11.5px; }
   #costPerKm li input[type=number], #costChico li input[type=number] { width: 68px; text-align: right; }
 
-  .formula { font-size: 12px; line-height: 1.5; color: var(--ink-2); background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 8px 9px; }
-  .formula b { color: var(--ink); font-weight: 650; }
-  .formula .muted { color: var(--ink-3); }
-  .formula table { border-collapse: collapse; width: 100%; margin: 2px 0 6px; }
-  .formula td { padding: 1px 0; }
-  .formula td.n { text-align: right; font-variant-numeric: tabular-nums; color: var(--ink); font-weight: 600; }
-  .formula td.raw { text-align: right; width: 52px; color: var(--ink-3); font-weight: 400; }
-  .formula .warn { color: var(--warn); }
+  /* ========================= config tab ========================== */
+  /* Name on the left, unit and box on the right, as the cost rows read. */
+  #earlyStart li .name { font-weight: 600; flex: 1; }
+  #earlyStart li .unit { color: var(--ink-3); font-size: 11.5px; }
+  #earlyStart li input[type=number] { width: 68px; text-align: right; }
 
-  ol.rank { margin: 0; padding-left: 17px; font-size: 12.5px; color: var(--ink-2); }
-  ol.rank li { margin: 4px 0; }
-  ol.rank b { color: var(--ink); font-weight: 650; }
+
 
   @media (max-width: 860px) {
     #app { flex-direction: column; }
     #side { width: 100%; height: 56%; border-right: 0; border-bottom: 1px solid var(--line); }
     #map { min-height: 44%; }
+    #resizer { display: none; }
   }
 </style>
 </head>
 <body>
 <div id="app">
   <div id="map"></div>
+  <div id="resizer" title="arraste para alargar ou estreitar o painel (duplo clique repõe)"></div>
   <div id="side">
     <header>
       <div class="brand">
@@ -446,24 +568,22 @@
       </div>
       <div id="status"><span class="dot"></span><span class="txt">A verificar o otimizador…</span></div>
       <div class="tabs">
-        <button class="active" data-tab="solve">Plano</button>
+        <button class="active" data-tab="manage">Operações</button>
+        <button data-tab="plan">Plano</button>
         <button data-tab="zones">Zonas</button>
         <button data-tab="costs">Custos</button>
         <button data-tab="config">Configuração</button>
       </div>
     </header>
 
-    <!-- ===== Plan tab ===== -->
-    <!-- Two steps, one on screen at a time: the day being put
-         together, and the plans found for it. The footer offers what
-         the step on screen can do, which is the whole of the
-         navigation between them (see showStep). Nothing about how a
-         day is solved changed with the split; the same elements are
-         filled by the same code, only under one wrapper or the
-         other. -->
-    <div class="panel" id="tab-solve">
-      <div class="step" id="step-manage">
-      <div class="step-head"><h2>Gestão de operações</h2><span class="n" id="manageCount"></span></div>
+    <!-- ===== Operations tab ===== -->
+    <!-- The day being put together, and the plans found for it, are two
+         tabs rather than two steps of one: solving moves to the plan,
+         but the day it was made from stays where it was, so a change
+         and a second look cost one click each. The footer offers what
+         the tab on screen can do. -->
+    <div class="panel" id="tab-manage">
+      <div class="step-head"><h2>Gestão de operações</h2></div>
 
       <fieldset>
         <legend>Nova operação</legend>
@@ -472,31 +592,70 @@
           <div class="field"><span>Contentor</span><select id="opSize"></select></div>
         </div>
         <div class="grid3">
-          <div class="field"><span>Latitude</span><input id="newLat" type="number" step="0.000001" placeholder="41.14961" /></div>
-          <div class="field"><span>Longitude</span><input id="newLng" type="number" step="0.000001" placeholder="-8.61099" /></div>
+          <div class="field"><span>Latitude</span><input id="newLat" type="number" step="0.000001" /></div>
+          <div class="field"><span>Longitude</span><input id="newLng" type="number" step="0.000001" /></div>
           <button id="addOp">Adicionar</button>
         </div>
-        <div class="hint">Carregue em qualquer ponto do mapa, ou escreva uma latitude e uma longitude, para acrescentar uma operação com estas definições. A empresa é fixa; a sua sede define-se na Configuração.</div>
+        <div class="hint">Escolha a operação e o contentor e carregue no mapa, ou escreva as coordenadas. Para o dia inteiro de uma vez, importe um ficheiro.</div>
+        <div class="btn-row">
+          <button id="importOps">Importar Operações</button>
+        </div>
+        <input id="csvFile" type="file"
+               accept=".csv,.txt,.xlsx,.xls,text/csv,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" hidden />
+        <div id="csvReport" hidden></div>
+        <!-- A line of the file, in place of a paragraph describing it.
+             The columns may come in any order and under any of their
+             names; this is simply the shortest one that reads. -->
+        <div class="sample-wrap">
+          <table class="sample">
+            <caption>CSV ou Excel, uma linha por operação, e.g.</caption>
+            <thead>
+              <tr><th>lat</th><th>lng</th><th>operacao</th><th>contentor</th><th>prioridade</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>37.030820</td><td>-7.976390</td><td>troca</td><td>6</td><td>50</td></tr>
+            </tbody>
+          </table>
+        </div>
       </fieldset>
 
       <fieldset>
         <legend>Operações</legend>
+        <!-- What the day is made of, before the list of it: one count
+             per kind of operation, and the total they come to. -->
+        <div class="tally" id="opTally" hidden></div>
+        <div class="list-head" id="pointsHead" hidden>
+          <span class="h-lead"></span>
+          <span class="h-type">Operação</span>
+          <span class="h-size">Contentor</span>
+          <span class="h-prio">Prioridade</span>
+          <span class="h-x"></span>
+        </div>
         <ul id="points" class="list"></ul>
         <div class="btn-row">
-          <button id="importCsv">Importar um CSV</button>
-          <button id="exportCsv">Descarregar CSV</button>
+          <button id="exportOps">Descarregar Operações</button>
         </div>
-        <input id="csvFile" type="file" accept=".csv,.txt,text/csv,text/plain" hidden />
-        <div id="csvReport" hidden></div>
-        <div class="hint">O tipo, o tamanho e a prioridade (0–100, quanto maior mais tarde é descartada) editam-se linha a linha. Os pontos têm de ficar dentro da área OSRM carregada (Portugal).</div>
-        <div class="hint">Um CSV é a lista do dia tal como o escritório já a tem. A primeira linha nomeia as colunas — <code>lat</code>, <code>lng</code>, <code>type</code> e <code>size</code> são precisas, <code>priority</code> não — por qualquer ordem, escritas de qualquer maneira, e tudo o resto na linha é ignorado. <code>type</code> é uma das quatro operações acima e <code>size</code> um tamanho de contentor em m³. As colunas separam-se por vírgula, ponto e vírgula ou tabulação, e o ficheiro pode ser largado em qualquer ponto desta janela em vez de escolhido. Importar substitui a lista inteira, por isso o ficheiro é lido e mostrado antes de se deitar fora seja o que for. Descarregar escreve a lista de volta no mesmo formato; com a lista vazia dá um modelo para preencher.</div>
+        <!-- The format is asked for only once it is needed, so the
+             button stays a single thing to press. -->
+        <div class="format-ask" id="exportChoice" hidden>
+          <span>Em que formato?</span>
+          <button id="exportXlsx">Excel</button>
+          <button id="exportCsv">CSV</button>
+        </div>
       </fieldset>
 
       <div id="problems"></div>
-      </div>
+    </div>
 
-      <div class="step" id="step-solutions" hidden>
+    <!-- ===== Plan tab ===== -->
+    <div class="panel" id="tab-plan" hidden>
       <div class="step-head"><h2>Soluções apresentadas</h2><span class="n" id="solutionCount"></span></div>
+
+      <!-- Opened before there is anything to read, this says so once
+           and the boxes below simply stand empty. -->
+      <div class="empty" id="planEmpty" hidden>
+        Ainda não há plano. Junte operações e carregue em <b>Encontrar plano</b>.
+      </div>
 
       <!-- The day planned under each scenario (see the scenarios block
            of docs/waste_defaults.json): one row per plan with what it
@@ -517,36 +676,33 @@
            placing the job instead of adding an operation. The logic is
            in waste_insert.js and the planner-facing description in
            docs/extra_job.md. -->
-      <div class="extra-head">Encaixar mais um serviço<span>o dia já vai a meio e o telefone toca</span></div>
+      <div class="extra-head">Encaixar novo serviço<span>o dia já vai a meio e o telefone toca</span></div>
+      <!-- One box: the hour the call comes in, and what is being asked
+           for, are one question. -->
       <fieldset>
-        <legend>Adicionado às</legend>
-        <div class="grid3">
-          <div class="field"><span>São agora</span><input id="nowClock" type="time" step="60" /></div>
-          <div class="field"><span>Na estrada</span><span class="ro" id="nowState">—</span></div>
-          <button id="nowLive">Hora real</button>
+        <legend>Adicionar às</legend>
+        <div class="now-row">
+          <input id="nowClock" type="time" step="60" />
+          <div class="road" id="nowState" hidden></div>
         </div>
-        <div class="hint">A hora a que a pergunta é feita. Tudo o que um camião já deixou para trás é história e fica como estava planeado: o serviço só pode entrar depois disso, e é isso que distingue esta pergunta de voltar a planear o dia. Mexa no relógio para experimentar o mesmo serviço mais cedo ou mais tarde.</div>
-      </fieldset>
+        <div class="hint">O que os camiões já fizeram antes desta hora fica como está; o serviço só pode entrar depois dela.</div>
 
-      <fieldset>
-        <legend>O serviço que acabou de entrar</legend>
+        <div class="sub-legend">Detalhes operação a adicionar</div>
         <div class="grid2">
           <div class="field"><span>Operação</span><select id="extraType"></select></div>
           <div class="field"><span>Contentor</span><select id="extraSize"></select></div>
         </div>
         <div class="grid3">
-          <div class="field"><span>Latitude</span><input id="extraLat" type="number" step="0.000001" placeholder="37.030558" /></div>
-          <div class="field"><span>Longitude</span><input id="extraLng" type="number" step="0.000001" placeholder="-7.976093" /></div>
+          <div class="field"><span>Latitude</span><input id="extraLat" type="number" step="0.000001" /></div>
+          <div class="field"><span>Longitude</span><input id="extraLng" type="number" step="0.000001" /></div>
         </div>
         <div class="btn-row">
           <button id="extraFind" class="primary">Onde é que encaixa?</button>
           <button id="extraClear" disabled>Cancelar o serviço</button>
         </div>
-        <div class="hint">Carregue no mapa para pôr o serviço algures — com um plano no ecrã, carregar move este serviço em vez de acrescentar uma operação ao dia; para acrescentar ao dia, volte à gestão de operações. O plano em si não é mexido: fica exatamente como foi resolvido, e isto só diz quem ainda poderia atender mais uma chamada.</div>
       </fieldset>
 
       <div id="extraResult"></div>
-      </div>
     </div>
 
     <!-- ===== Zones tab ===== -->
@@ -560,25 +716,27 @@
          runs scripts/build_zone_graphs.sh --apply). See
          docs/no_go_zones.md. -->
     <div class="panel" id="tab-zones" hidden>
-      <fieldset>
-        <legend>Dados de encaminhamento</legend>
-        <div id="zoneState">A verificar…</div>
-        <div class="btn-row">
-          <button id="applyZones" class="primary">Aplicar as áreas aos dados de encaminhamento</button>
-        </div>
-        <div class="hint">As zonas são impostas pelo grafo de estradas e não pelo otimizador, por isso uma alteração aqui só chega ao plano depois de os dados de encaminhamento serem reconstruídos e o contentor deles reiniciado. Aplicar faz as duas coisas; demora um minuto ou dois e, entretanto, o planeador não planeia com dados desatualizados.</div>
-      </fieldset>
-
+      <!-- Drawing comes first, since it is what the tab is for; whether
+           what was drawn is actually in force comes after it. -->
       <fieldset>
         <legend>Áreas</legend>
         <div class="btn-row">
-          <button id="drawZone">Desenhar uma zona</button>
+          <button id="drawZone">Desenhar uma área</button>
           <button id="finishZone" hidden>Terminar</button>
           <button id="cancelZone" hidden>Cancelar</button>
         </div>
-        <div class="hint" id="drawHint">Carregue no mapa para colocar os vértices da área e depois em Terminar (ou carregue duas vezes no último vértice). No mínimo três vértices.</div>
+        <div class="hint" id="drawHint">Carregue no mapa para marcar os cantos da área e depois em Terminar. No mínimo três cantos.</div>
         <ul id="zones" class="list"></ul>
-        <div class="hint">Assinale a que veículos cada área está fechada. As áreas ficam guardadas em <code>docs/no_go_zones.json</code> e são gravadas assim que mudam, por isso são partilhadas por todos os que usam este planeador — ao contrário do separador Configuração, que só muda este navegador. Para mudar a forma de uma área, apague-a e desenhe-a de novo.</div>
+        <div class="hint">Desenhe as áreas onde não quer que certos camiões circulem e assinale, em cada uma, quais.</div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Áreas em vigor</legend>
+        <div id="zoneState" class="busy">A verificar…</div>
+        <div class="btn-row">
+          <button id="applyZones" class="primary">Aplicar as áreas</button>
+        </div>
+        <div class="hint">Aplicar demora um minuto ou dois.</div>
       </fieldset>
     </div>
 
@@ -595,30 +753,13 @@
       <fieldset>
         <legend>Custo por quilómetro</legend>
         <ul id="costPerKm" class="list"></ul>
-        <div class="hint">O que um quilómetro desse camião custa realmente à empresa: combustível, pneus, desgaste, tudo o que cresce com a estrada. Os camiões de um tipo são idênticos, por isso isto é por tipo. Só as diferenças entre os tipos decidem que camião é que sai.</div>
+        <div class="hint">O que um quilómetro desse camião custa à empresa: combustível, pneus, desgaste.</div>
       </fieldset>
 
       <fieldset>
         <legend>Chico</legend>
         <ul id="costChico" class="list"></ul>
-        <div class="hint">O que atrelar um chico faz ao custo por quilómetro desse camião: 1,25 quer dizer um quarto mais caro com o reboque atrás. A 1, o otimizador leva um chico sempre que isso poupe quilómetros. O tempo de atrelar é tempo, e o tempo não tem preço aqui.</div>
-      </fieldset>
-
-      <fieldset>
-        <legend>Saída antecipada</legend>
-        <label><span>Por hora antes do dia de trabalho</span><input id="costEarlyPerHour" type="number" min="0" step="0.5" value="0" /></label>
-        <div class="hint" id="earlyCostHint">Quanto vale uma hora de saída antecipada: um camião que sai antes de o dia começar trabalha essa hora por cima do seu dia, por isso, ao contrário do tempo normal do motorista, é um custo a sério e tem preço. O otimizador só manda um camião sair mais cedo quando isso poupa mais estrada do que as horas antecipadas custam. Não pode impedir que uma operação se faça — fazer o maior número de operações vem primeiro, e o dinheiro só escolhe entre planos que fazem o mesmo trabalho. Um preço único serve toda a frota; quanto mais cedo cada tipo de camião pode sair define-se por tipo na Configuração. A 0, a saída antecipada é gratuita e os camiões podem usá-la à toa.</div>
-      </fieldset>
-
-      <fieldset>
-        <legend>Trabalhar de tarde</legend>
-        <label><span>Por camião na rua depois do almoço</span><input id="costAfternoonFixed" type="number" min="0" step="1" value="0" /></label>
-        <div class="hint" id="afternoonCostHint">Deixe isto a 0 a não ser que o dia esteja desequilibrado. Com uma manhã e uma tarde do mesmo tamanho, as duas valem exatamente o mesmo para o otimizador, e o plano sai de manhã de qualquer maneira, por isso um preço aqui não compra nada; o trabalho de tarde que resta num plano desses é trabalho que não coube na manhã, e nenhum preço mexe nisso — fazer o maior número de operações vem sempre primeiro. Onde isto se justifica é num dia cortado de forma desigual, uma manhã curta contra uma tarde longa: aí a tarde é mesmo a metade mais barata, dias inteiros acabam nela, e é isto que os traz de volta. Serve também para desempatar quando as duas metades valem o mesmo, caso em que hoje a manhã ganha pela ordem em que calha oferecer os camiões e não por nada que lhe tenha sido dito. Cobrado uma vez por camião que trabalhe de tarde, faça lá as operações que fizer, por isso um camião que já saiu faz a seguinte de graça. Não é dinheiro que a empresa gaste — ninguém é pago pela tarde que não seja pago pela manhã — por isso decide o plano sem aparecer no custo que se reporta dele.</div>
-      </fieldset>
-
-      <fieldset>
-        <legend>O que é dito ao otimizador</legend>
-        <div class="formula" id="costFormula"></div>
+        <div class="hint">Quanto o chico encarece o quilómetro desse camião: 1,25 é um quarto mais caro.</div>
       </fieldset>
 
       <fieldset>
@@ -626,28 +767,33 @@
         <label><span>Tempo máx. de condução (min)</span><input id="maxTravelTime" type="number" min="0" step="1" value="0" /></label>
         <label><span>Distância máx. (km)</span><input id="maxDistance" type="number" min="0" step="1" value="0" /></label>
         <label><span>N.º máx. de tarefas</span><input id="maxTasks" type="number" min="0" step="1" value="0" /></label>
-        <div class="hint">Limites rígidos, não custos: uma rota que quebre um deles não é sequer um plano, por isso as operações ficam para amanhã em vez de ficarem caras. 0 quer dizer sem limite. Havendo almoço, cada limite aplica-se à manhã e à tarde em separado, e não ao dia inteiro. Uma tarefa é um passo de transporte, não uma operação: uma troca são quatro (carregar o vazio e despejar o cheio na empresa, deixar o vazio e levar o cheio no cliente).</div>
+        <div class="hint">Limites rígidos por turno: o que não couber fica para outro dia. 0 é sem limite.</div>
       </fieldset>
 
       <fieldset>
-        <legend>Procura</legend>
-        <label><span>Nível de exploração (0–5)</span><input id="explorationLevel" type="number" min="0" max="5" step="1" value="5" /></label>
-        <label><span>Fios de execução</span><input id="threads" type="number" min="1" max="32" step="1" value="4" /></label>
-        <label><span>Seguir as estradas</span><input id="geometry" type="checkbox" checked /></label>
-        <div class="hint">A exploração é o esforço com que o otimizador procura: 5 dá o melhor plano e é o mais lento, 0 é o mais rápido. Seguir as estradas pede o traçado conduzido (o -g do vroom) para que o mapa desenhe ruas a sério e os quilómetros sejam reportados; sem isso, o mapa desenha linhas retas. Um custo por km ou um limite de distância precisam disso e ligam-no por si.</div>
+        <legend>Saída antecipada</legend>
+        <label><span>Por hora antes do dia de trabalho</span><input id="costEarlyPerHour" type="number" min="0" step="0.5" value="0" /></label>
+        <div class="hint" id="earlyCostHint">Quanto se paga por cada hora que um camião saia antes de o dia começar. A 0, sair mais cedo é grátis.</div>
       </fieldset>
 
       <fieldset>
-        <legend>Como o otimizador ordena os planos</legend>
-        <ol class="rank">
-          <li><b>Prioridade</b> — a prioridade total das operações feitas.</li>
-          <li><b>Operações feitas</b> — o maior número possível, custe o que custar.</li>
-          <li><b>Custo</b> — os quilómetros, ao preço de cada camião acima, mais um encargo sobre o tempo de condução que o cenário define.</li>
-          <li><b>Camiões usados</b>, depois <b>tempo de condução</b>, depois <b>distância</b>.</li>
-        </ol>
-        <div class="hint">Cada linha só fala quando as de cima empatam, por isso o custo nunca deita fora uma operação para poupar dinheiro. Quanto vale uma hora na estrada é a única coisa que fica em aberto, e é nisso que os cenários diferem: os motoristas são pagos ao mês, saia o camião ou não, por isso o plano mais barato não tenta poupar as horas deles e manda os camiões pequenos e baratos fazer muitas viagens, ao passo que um plano que pesa muito as horas põe o trabalho em menos camiões, maiores e mais caros. Todos os cenários fazem as mesmas operações — as duas linhas acima do custo dizem-no — e o horário da Configuração e os limites abaixo são limites rígidos em qualquer caso. Os cenários, e o peso que cada um dá a uma hora, são o bloco <code>scenarios</code> de <code>docs/waste_defaults.json</code>.</div>
-        <div class="btn-row"><button id="resetCosts">Voltar aos valores por omissão</button></div>
+        <legend>Trabalhar de tarde</legend>
+        <label><span>Por camião na rua depois do almoço</span><input id="costAfternoonFixed" type="number" min="0" step="1" value="0" /></label>
+        <div class="hint" id="afternoonCostHint">Cobrado uma vez a cada camião que trabalhe de tarde, para o plano preferir a manhã. A 0, as duas metades do dia valem o mesmo.</div>
       </fieldset>
+
+      <!-- How hard the solver looks, and whether it asks for the driven
+           geometry. Set once in the solver block of
+           docs/waste_defaults.json and not worth a planner's attention,
+           so the inputs stay — every code path still reads them — but
+           the box around them is gone. -->
+      <div hidden>
+        <input id="explorationLevel" type="number" min="0" max="5" step="1" value="5" />
+        <input id="threads" type="number" min="1" max="32" step="1" value="4" />
+        <input id="geometry" type="checkbox" checked />
+      </div>
+
+      <div class="btn-row"><button id="resetCosts">Voltar aos valores por omissão</button></div>
     </div>
 
     <!-- ===== Config tab ===== -->
@@ -655,11 +801,11 @@
       <fieldset>
         <legend>Frota</legend>
         <ul id="fleet" class="list"></ul>
-        <div class="hint">Camiões de cada tipo disponíveis hoje, e chicos: reboques que fazem um camião levar três cargas permitidas de uma vez. O otimizador decide que camiões levam chico, nunca mais do que os camiões desse tipo. Os materiais viajam num contentor cheio do tamanho escolhido. As regras de carga por tipo seguem docs/waste_transport_problem.md.</div>
+        <div class="hint">Camiões e chicos disponíveis hoje; o chico é o reboque que triplica a carga de um camião.</div>
 
         <div class="sub">Contentores no estaleiro</div>
         <ul id="containers" class="list"></ul>
-        <div class="hint">Contentores de cada tamanho que a empresa tem para dar hoje. Só as operações que levam um daqui os gastam: entregar um vazio, uma troca (deixa um vazio para trás) e materiais (saem num contentor desse tamanho). Recolher um contentor cheio não gasta nenhum, traz um. Quando há mais operações do que contentores de um tamanho, as que sobram ficam para outro dia e é o otimizador que escolhe quais, a prioridade primeiro. Deixe a caixa vazia para um stock grande ao ponto de não importar.</div>
+        <div class="hint">Contentores vazios disponíveis para sair hoje; o que faltar fica para outro dia. Vazio é sem limite.</div>
       </fieldset>
 
       <fieldset>
@@ -668,11 +814,11 @@
         <label><span>Fim</span><input id="dayEnd" type="time" value="17:00" /></label>
         <label><span>Início do almoço</span><input id="lunchStart" type="time" value="12:00" /></label>
         <label><span>Fim do almoço</span><input id="lunchEnd" type="time" value="13:00" /></label>
-        <div class="hint">O almoço é passado na empresa: todos os camiões estão de volta e descarregados à hora de início do almoço e nada carregam antes do fim dele, por isso o dia é um turno de manhã e um de tarde, planeados em conjunto. Ponha as duas horas iguais para não haver almoço.</div>
+        <div class="hint">Ao almoço os camiões estão todos na Europontal; ponha as duas horas iguais para não haver almoço.</div>
 
         <div class="sub">Saída antecipada</div>
         <ul id="earlyStart" class="list"></ul>
-        <div class="hint">Quanto mais cedo do que o início acima pode sair um camião desse tipo, oferecido em dois passos: metade e a totalidade. Os camiões de um tipo são idênticos, por isso isto é por tipo — defina-o onde os motoristas possam mesmo entrar mais cedo e deixe o resto a 0. Só a manhã pode começar mais cedo: a tarde começa quando o almoço acaba. O dia só se alonga à frente, por isso um camião que entre mais cedo acaba na mesma à hora de fim acima. Quais os camiões que entram mais cedo é decisão do otimizador, pesada contra o que uma hora disso custa no separador Custos. Cada passo é mais uma versão de cada camião desse tipo para o otimizador pesar, por isso 0 é a resposta mais barata onde não é preciso.</div>
+        <div class="hint">Quanto mais cedo pode entrar um camião desse tipo; deixe a 0 onde os motoristas não possam mesmo.</div>
       </fieldset>
 
       <fieldset>
@@ -685,21 +831,21 @@
       <!-- <div class="hint">Tudo neste separador parte de <code>docs/waste_defaults.json</code>, ao lado das regras de carga em <code>docs/waste_rules.json</code>. As alterações feitas aqui vivem só neste separador do navegador — edite esse ficheiro para mudar os valores por omissão.</div> -->
     </div>
 
-    <!-- One footer, one row of buttons per step: what a step can do is
-         also how you leave it. -->
+    <!-- One footer, one row of buttons per tab that has any: what a tab
+         can do sits under it. -->
     <footer id="actions">
       <div class="bar" id="actions-manage">
         <button id="solve" class="primary">Encontrar plano</button>
         <button id="clear">Limpar</button>
       </div>
       <div class="bar" id="actions-solutions" hidden>
-        <button id="backToManage">Voltar à gestão de operações</button>
+        <button id="backToManage">Voltar às operações</button>
       </div>
     </footer>
   </div>
 </div>
 
-<div id="drop" hidden><span>Largue o CSV para carregar as operações de hoje</span></div>
+<div id="drop" hidden><span>Largue o ficheiro para carregar as operações de hoje</span></div>
 
 <script>
 // Truck types and loading rules come from docs/waste_rules.json; the
@@ -867,22 +1013,32 @@ function companyPin() {
 }
 
 // ---------- tabs ----------
-document.querySelectorAll(".tabs button").forEach((btn) => {
-  btn.onclick = () => {
-    document.querySelectorAll(".tabs button").forEach((b) => b.classList.toggle("active", b === btn));
-    for (const other of document.querySelectorAll(".tabs button")) {
-      document.getElementById(`tab-${other.dataset.tab}`).hidden = other !== btn;
-    }
-    document.getElementById("actions").hidden = btn.dataset.tab !== "solve";
-    if (btn.dataset.tab === "zones") refreshZoneState();
-  };
-});
+// Which one is on screen, which the map has to know: a click means one
+// thing where the day is built and another where a plan is read.
+let currentTab = "manage";
 
-// Is the Plan tab the one on screen? A click on the map only means
-// something there, and the panel is the only thing that says so.
-function onPlanTab() {
-  return !document.getElementById("tab-solve").hidden;
+function showTab(name) {
+  currentTab = name;
+  for (const b of document.querySelectorAll(".tabs button")) {
+    const its = b.dataset.tab;
+    b.classList.toggle("active", its === name);
+    document.getElementById(`tab-${its}`).hidden = its !== name;
+  }
+  const footed = name === "manage" || name === "plan";
+  document.getElementById("actions").hidden = !footed;
+  document.getElementById("actions-manage").hidden = name !== "manage";
+  document.getElementById("actions-solutions").hidden = name !== "plan";
+  // Each tab is its own scroller, but a tab left half way down and come
+  // back to should still open at its top.
+  if (footed) document.getElementById(`tab-${name}`).scrollTop = 0;
+  if (name === "zones") refreshZoneState();
+  if (name === "plan") initExtraClock();
+  updateSolveButton();
 }
+
+document.querySelectorAll(".tabs button").forEach((btn) => {
+  btn.onclick = () => showTab(btn.dataset.tab);
+});
 
 // ---------- selectors ----------
 function fillTypeSelect(sel, value, short) {
@@ -913,6 +1069,47 @@ opTypeSel.onchange = () => { opSizeSel.disabled = !M.OPERATION_TYPES[opTypeSel.v
 const map = L.map("map", { zoomControl: false }).setView([M.COMPANY.lat, M.COMPANY.lng], 13);
 L.control.zoom({ position: "topright" }).addTo(map);
 L.control.scale({ imperial: false, position: "bottomleft" }).addTo(map);
+
+// ---------- the seam between the panel and the map ----------
+// Dragged rather than fixed: a long list of operations wants a wide
+// panel and a plan being read on the map wants a narrow one. Leaflet
+// sizes itself once, so it is told each time the seam moves.
+const SIDE_DEFAULT = 470;
+const SIDE_MIN = 340;
+const SIDE_MAP_MIN = 280;
+
+function setSideWidth(px) {
+  const max = Math.max(SIDE_MIN, window.innerWidth - SIDE_MAP_MIN);
+  document.getElementById("app").style
+    .setProperty("--side-w", `${Math.round(Math.min(max, Math.max(SIDE_MIN, px)))}px`);
+  map.invalidateSize();
+}
+
+(function () {
+  const bar = document.getElementById("resizer");
+  bar.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    bar.setPointerCapture(e.pointerId);
+    document.body.classList.add("resizing");
+  });
+  bar.addEventListener("pointermove", (e) => {
+    if (!bar.hasPointerCapture(e.pointerId)) return;
+    setSideWidth(e.clientX);
+  });
+  const stop = (e) => {
+    if (bar.hasPointerCapture(e.pointerId)) bar.releasePointerCapture(e.pointerId);
+    document.body.classList.remove("resizing");
+  };
+  bar.addEventListener("pointerup", stop);
+  bar.addEventListener("pointercancel", stop);
+  bar.addEventListener("dblclick", () => setSideWidth(SIDE_DEFAULT));
+  // A window narrowed under a panel already dragged wide would leave no
+  // map at all, so the width is brought back inside its bounds.
+  window.addEventListener("resize", () => {
+    const now = parseFloat(getComputedStyle(document.getElementById("side")).width);
+    if (isFinite(now)) setSideWidth(now);
+  });
+})();
 
 // The standard OSM tiles are colourful enough to fight with the pins and the
 // route lines, so the basemap is CARTO's Positron: the same OpenStreetMap data
@@ -998,7 +1195,7 @@ const LegendControl = L.Control.extend({
   onAdd() {
     const box = L.DomUtil.create("div", "map-legend");
     box.innerHTML =
-      `<div>${chip(COMPANY_STYLE)}<span>Empresa</span></div>` +
+      `<div>${chip(COMPANY_STYLE)}<span>Europontal</span></div>` +
       Object.entries(M.OPERATION_TYPES)
         .map(([key, t]) => `<div>${chip(OP_STYLE[key])}<span>${esc(t.short)}</span></div>`)
         .join("");
@@ -1178,7 +1375,7 @@ async function refreshZoneState() {
   } catch (err) {
     zoneStatus = null;
     box.className = "err";
-    box.textContent = `Não foi possível ler o estado dos dados de encaminhamento: ${BackendMessages.of(err)}`;
+    box.textContent = `Não foi possível saber se as áreas estão em vigor: ${BackendMessages.of(err)}`;
     return null;
   }
   zoneStatus = status.profiles || {};
@@ -1187,31 +1384,34 @@ async function refreshZoneState() {
   const applyBtn = document.getElementById("applyZones");
   if (!profiles.length) {
     box.className = "ok";
-    box.textContent = "Nenhuma área está fechada a alguém: todos os camiões usam o perfil de encaminhamento por omissão, e o plano não precisa de mais nada.";
+    box.textContent = "Nenhuma área desenhada: os camiões circulam por todo o lado.";
     applyBtn.hidden = true;
     return zoneStatus;
   }
   applyBtn.hidden = false;
 
-  const lines = [];
-  let worst = "ok";
-  for (const [name, p] of profiles) {
-    const who = esc(profileLabel(name));
-    if (!p.built) {
-      worst = "stale";
-      lines.push(`Os dados de encaminhamento de "${who}" ainda não foram construídos, por isso as ${p.zones} área(s) que lhes estão fechadas não são respeitadas. Carregue em Aplicar para os construir.`);
-    } else if (!p.up_to_date) {
-      worst = "stale";
-      lines.push(`Os dados de encaminhamento de "${who}" são mais antigos do que as áreas acima: continuam a evitar as anteriores. Carregue em Aplicar para os reconstruir.`);
-    } else if (p.reachable === false) {
-      worst = "err";
-      lines.push(`Os dados de encaminhamento de "${who}" estão atualizados, mas nada responde na porta ${p.host_port}. Carregue em Aplicar para arrancar o contentor.`);
-    } else {
-      lines.push(`${p.zones} área(s) fechada(s) a "${who}", dados de encaminhamento atualizados e a ser servidos${p.built_at ? ` (construídos em ${esc(p.built_at)})` : ""}.`);
-    }
+  // One sentence for the whole tab. What is behind it — a routing
+  // dataset per restricted profile, built and served by its own
+  // container — is machinery the planner never has to think about; all
+  // that matters here is whether the areas drawn above are being obeyed
+  // and, if not, that Aplicar is the way to make them be. The detail is
+  // still in zoneProblem, which is what the Plan button reports.
+  const areas = profiles.reduce((n, [, p]) => n + (p.zones || 0), 0);
+  const missing = profiles.filter(([, p]) => !p.built || !p.up_to_date).length;
+  const down = profiles.filter(([, p]) => p.built && p.up_to_date && p.reachable === false).length;
+
+  if (missing) {
+    box.className = "stale";
+    box.textContent = "As áreas ainda não estão a ser respeitadas. Carregue em Aplicar.";
+  } else if (down) {
+    box.className = "err";
+    box.textContent = "As áreas estão prontas, mas quem as impõe não está a responder. Carregue em Aplicar.";
+  } else {
+    box.className = "ok";
+    box.textContent = areas === 1
+      ? "A área está a ser respeitada."
+      : `As ${areas} áreas estão a ser respeitadas.`;
   }
-  box.className = worst;
-  box.innerHTML = lines.join("<br>");
   return zoneStatus;
 }
 
@@ -1238,7 +1438,7 @@ async function pollBuild(announce = true) {
     document.getElementById("applyZones").disabled = true;
     const box = document.getElementById("zoneState");
     box.className = "busy";
-    box.textContent = `A aplicar as áreas aos dados de encaminhamento (início às ${state.started_at})…`;
+    box.textContent = `A aplicar as áreas (início às ${state.started_at})…`;
     if (!applyPoll) applyPoll = setInterval(pollBuild, 2000);
     return;
   }
@@ -1246,7 +1446,7 @@ async function pollBuild(announce = true) {
   stopBuildPolling();
   if (state.exit_code === null || !(announce || wasPolling)) return;
   if (state.exit_code === 0) {
-    setStatus("Áreas aplicadas: os dados de encaminhamento estão atualizados e a ser servidos.", "ok");
+    setStatus("Áreas aplicadas: já estão a ser respeitadas.", "ok");
   } else {
     setStatus(`A aplicação das áreas falhou (código de saída ${state.exit_code}).`, "err");
   }
@@ -1270,7 +1470,7 @@ async function applyZones() {
     document.getElementById("applyZones").disabled = false;
     return;
   }
-  setStatus("A aplicar as áreas aos dados de encaminhamento…", "busy");
+  setStatus("A aplicar as áreas…", "busy");
   pollBuild();
 }
 
@@ -1378,17 +1578,17 @@ map.on("click", (e) => {
   // Drawing an area is a mode of its own and outranks everything: while
   // it is on, the map places the corners of that area and nothing else.
   if (drawing) return addDrawingPoint(e.latlng.lat, e.latlng.lng);
-  // Otherwise a click belongs to the Plan tab, and to whichever of its
-  // two steps is on screen: the day is added to where the day is put
-  // together, and the extra job is moved where a plan is being read.
+  // Otherwise a click belongs to whichever of the two working tabs is
+  // on screen: the day is added to under Operações, and the extra job
+  // is moved under Plano.
   // On the other tabs the map is there to be looked at rather than
   // pointed at — the areas, the prices and the fleet are all edited in
   // the panel — so a click does nothing at all. It used to fall through
   // to whichever of the two the Plan tab had been left on, which meant
   // reading the Costs tab and touching the map quietly added an
   // operation to a day that was not even on screen.
-  if (!onPlanTab()) return;
-  if (planStep === "solutions") return setExtraJob(e.latlng.lat, e.latlng.lng);
+  if (currentTab === "plan") return setExtraJob(e.latlng.lat, e.latlng.lng);
+  if (currentTab !== "manage") return;
   addOperation(e.latlng.lat, e.latlng.lng);
 });
 
@@ -1442,14 +1642,14 @@ for (const input of [newLatInput, newLngInput]) {
 const csvFileInput = document.getElementById("csvFile");
 const csvReport = document.getElementById("csvReport");
 
-document.getElementById("importCsv").onclick = () => {
+document.getElementById("importOps").onclick = () => {
   // Cleared first, so that picking the same file twice reads it twice:
   // a file corrected in the meantime is the usual second pick.
   csvFileInput.value = "";
   csvFileInput.click();
 };
 csvFileInput.onchange = () => {
-  if (csvFileInput.files[0]) readCsvFile(csvFileInput.files[0]);
+  if (csvFileInput.files[0]) readOperationsFile(csvFileInput.files[0]);
 };
 
 // An office spreadsheet is as often Windows-1252 as UTF-8, and the
@@ -1466,9 +1666,47 @@ function decodeCsv(buffer) {
   }
 }
 
-function readCsvFile(file) {
+// A workbook is what the office has open as often as a CSV, so one is
+// read just as well: its first sheet is written out as the very same
+// text a CSV would have been, and nothing past this point can tell the
+// two apart. The reader is fetched only when a workbook is actually
+// picked, so a CSV import never waits on the network. Semicolons
+// separate the columns, since a sheet writes its decimals with
+// whatever separator it was formatted with, comma included.
+const XLSX_URL = "https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js";
+let xlsxLoad = null;
+
+function loadXlsx() {
+  if (window.XLSX) return Promise.resolve(window.XLSX);
+  if (!xlsxLoad) {
+    xlsxLoad = new Promise((resolve, reject) => {
+      const tag = document.createElement("script");
+      tag.src = XLSX_URL;
+      tag.onload = () => resolve(window.XLSX);
+      tag.onerror = () => {
+        xlsxLoad = null;
+        reject(new Error("não foi possível carregar o leitor de Excel"));
+      };
+      document.head.appendChild(tag);
+    });
+  }
+  return xlsxLoad;
+}
+
+function excelToCsv(buffer) {
+  return loadXlsx().then((X) => {
+    const book = X.read(buffer, { type: "array" });
+    const sheet = book.Sheets[book.SheetNames[0]];
+    if (!sheet) throw new Error("o ficheiro não tem nenhuma folha");
+    return X.utils.sheet_to_csv(sheet, { FS: ";" });
+  });
+}
+
+function readOperationsFile(file) {
+  const excel = /\.xlsx?$/i.test(file.name);
   file.arrayBuffer()
-    .then((buf) => showCsvReport(M.parseOperationsCsv(decodeCsv(buf)), file.name))
+    .then((buf) => (excel ? excelToCsv(buf) : decodeCsv(buf)))
+    .then((text) => showCsvReport(M.parseOperationsCsv(text), file.name))
     .catch((e) => setStatus(`Não foi possível ler ${file.name}: ${e.message}`, "err"));
 }
 
@@ -1480,7 +1718,7 @@ function readCsvFile(file) {
 const CSV_PROBLEMS_SHOWN = 12;
 
 function showCsvReport({ operations: read, problems }, name) {
-  document.querySelector(".tabs button[data-tab=solve]").click();
+  showTab("manage");
   csvReport.hidden = false;
   csvReport.className = read.length ? "" : "has-error";
   csvReport.innerHTML = "";
@@ -1555,22 +1793,59 @@ function applyCsv(read) {
   setStatus(`${plural(operations.length, "operação carregada", "operações carregadas")} do ficheiro.`, "ok");
 }
 
-// The list written back in the format it is read in, so a day can go
-// out to a spreadsheet and come home. An empty list gives the template,
-// which is the only description of the format anyone reads.
-document.getElementById("exportCsv").onclick = () => {
-  const url = URL.createObjectURL(
-    new Blob([M.operationsToCsv(operations)], { type: "text/csv;charset=utf-8" }));
+// The list written back in either of the formats it is read in, so a
+// day can go out to the spreadsheet the office keeps and come home. An
+// empty list gives the template, which is the only description of the
+// format anyone reads.
+function download(blob, name) {
+  const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = operations.length ? "operacoes.csv" : "modelo-operacoes.csv";
+  link.download = name;
   document.body.appendChild(link);
   link.click();
   link.remove();
   setTimeout(() => URL.revokeObjectURL(url), 0);
-  setStatus(operations.length
-    ? `${plural(operations.length, "operação escrita", "operações escritas")} para operacoes.csv.`
-    : "Foi escrito um modelo-operacoes.csv vazio para preencher.", "ok");
+}
+
+// The CSV is written first either way: it is the format, and a workbook
+// is that same text handed to the sheet writer. One description of what
+// a row holds, two files out of it.
+function exportOperations(excel) {
+  const csv = M.operationsToCsv(operations);
+  const base = operations.length ? "operacoes" : "modelo-operacoes";
+  const wrote = (name) => setStatus(operations.length
+    ? `${plural(operations.length, "operação escrita", "operações escritas")} para ${name}.`
+    : `Foi escrito um ${name} vazio para preencher.`, "ok");
+
+  if (!excel) {
+    download(new Blob([csv], { type: "text/csv;charset=utf-8" }), `${base}.csv`);
+    wrote(`${base}.csv`);
+    return;
+  }
+  loadXlsx()
+    .then((X) => {
+      const book = X.read(csv, { type: "string" });
+      download(
+        new Blob([X.write(book, { bookType: "xlsx", type: "array" })],
+          { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }),
+        `${base}.xlsx`);
+      wrote(`${base}.xlsx`);
+    })
+    .catch((e) => setStatus(`Não foi possível escrever ${base}.xlsx: ${e.message}`, "err"));
+}
+
+const exportChoice = document.getElementById("exportChoice");
+document.getElementById("exportOps").onclick = () => {
+  exportChoice.hidden = !exportChoice.hidden;
+};
+document.getElementById("exportXlsx").onclick = () => {
+  exportChoice.hidden = true;
+  exportOperations(true);
+};
+document.getElementById("exportCsv").onclick = () => {
+  exportChoice.hidden = true;
+  exportOperations(false);
 };
 
 // Dropping the file on the window does the same as picking it. Both
@@ -1599,7 +1874,7 @@ window.addEventListener("drop", (e) => {
   dragDepth = 0;
   dropOverlay.hidden = true;
   const file = e.dataTransfer.files[0];
-  if (file) readCsvFile(file);
+  if (file) readOperationsFile(file);
 });
 
 // Hovering a row lights up its pin and the other way round.
@@ -1623,14 +1898,14 @@ function renderPoints(unassignedOps = new Set(), opColor = {}, partialOps = new 
 
   L.marker([depot.lat, depot.lng], { icon: companyPin(), zIndexOffset: 1000, interactive: true })
     .addTo(markerLayer)
-    .bindTooltip("<b>Empresa</b><span class='sub'>fixa — os camiões começam e acabam aqui</span>", { direction: "top" });
+    .bindTooltip("<b>Europontal</b><span class='sub'>os camiões começam e acabam aqui</span>", { direction: "top" });
   const site = document.createElement("li");
   site.className = "company";
+  site.title = "os camiões começam e acabam aqui";
   site.innerHTML =
     chip(COMPANY_STYLE) +
-    `<span class="name">Empresa</span>` +
-    `<span class="coords">${depot.lat.toFixed(5)}, ${depot.lng.toFixed(5)}</span>` +
-    `<span class="fixed" title="os camiões começam e acabam aqui">fixa</span>`;
+    `<span class="name">Europontal</span>` +
+    `<span class="coords">${depot.lat.toFixed(5)}, ${depot.lng.toFixed(5)}</span>`;
   list.appendChild(site);
 
   for (const op of operations) {
@@ -1662,9 +1937,11 @@ function renderPoints(unassignedOps = new Set(), opColor = {}, partialOps = new 
     li.className = "empty";
     li.style.border = "0";
     li.style.background = "none";
-    li.textContent = "Ainda não há operações — carregue no mapa, escreva coordenadas ou importe um CSV.";
+    li.textContent = "Ainda não há operações — carregue no mapa, escreva coordenadas ou importe um ficheiro.";
     list.appendChild(li);
   }
+  // Headings for columns that are not there yet would name nothing.
+  document.getElementById("pointsHead").hidden = !operations.length;
 
   renderProblems();
   updateSolveButton();
@@ -1692,6 +1969,7 @@ function opRow(op, color, unassigned, partial) {
   type.className = "type";
   fillTypeSelect(type, op.type, true);
   const size = document.createElement("select");
+  size.className = "size";
   fillSizeSelect(size, op.size);
   size.disabled = !M.OPERATION_TYPES[op.type].needsSize;
   type.onchange = () => { op.type = type.value; clearPlan(); renderPoints(); };
@@ -1737,35 +2015,82 @@ function renderProblems() {
   return errors;
 }
 
-// Which of the two steps of the Plan tab is on screen. The day is put
-// together in "manage" and the plans found for it are read in
-// "solutions"; solving moves from one to the other, and the footer
-// moves back. Nothing about the solving itself knows about this: the
-// same elements are filled by the same code either way.
-let planStep = "manage";
+// Solving answers a question asked on another tab, so it says where the
+// answer went: the Plano tab is moved to and lights up for a moment,
+// rather than the day simply vanishing from under the planner.
+function goToPlan() {
+  if (currentTab !== "plan") showTab("plan");
+  const tab = document.querySelector(".tabs button[data-tab=plan]");
+  tab.classList.remove("just-solved");
+  // Reading a layout value between the two restarts the animation, so a
+  // second solve flashes the tab again instead of doing nothing.
+  void tab.offsetWidth;
+  tab.classList.add("just-solved");
+}
 
-function showStep(name) {
-  planStep = name;
-  document.getElementById("step-manage").hidden = name !== "manage";
-  document.getElementById("step-solutions").hidden = name !== "solutions";
-  document.getElementById("actions-manage").hidden = name !== "manage";
-  document.getElementById("actions-solutions").hidden = name !== "solutions";
-  // The panel is one scroller for both steps, so without this a step
-  // opens wherever the other one was left.
-  document.getElementById("tab-solve").scrollTop = 0;
-  if (name === "solutions") initExtraClock();
-  updateSolveButton();
+// Every kind is counted, a kind with none of them included: a zero says
+// "none today" where a missing line only says nothing at all. An empty
+// day has nothing to summarise and the list says so itself.
+function renderTally() {
+  const box = document.getElementById("opTally");
+  box.hidden = !operations.length;
+  if (!operations.length) { box.innerHTML = ""; return; }
+
+  const count = {};
+  for (const op of operations) count[op.type] = (count[op.type] || 0) + 1;
+  box.innerHTML =
+    Object.entries(M.OPERATION_TYPES).map(([key, t]) => {
+      const n = count[key] || 0;
+      return `<span class="t${n ? "" : " zero"}" title="${esc(t.label)}">` +
+        `${chip(OP_STYLE[key])}<b>${n}</b></span>`;
+    }).join("") +
+    `<span class="total">Total<b>${operations.length}</b></span>`;
+}
+
+// The same count of the day, under the plan this time: what it is made
+// of, and what is out doing it. Both read as one line rather than a
+// table, since three or four numbers do not need columns.
+function opTallyHtml() {
+  if (!operations.length) return "";
+  const count = {};
+  for (const op of operations) count[op.type] = (count[op.type] || 0) + 1;
+  return `<div class="tally">` +
+    Object.entries(M.OPERATION_TYPES).map(([key, t]) => {
+      const n = count[key] || 0;
+      return `<span class="t${n ? "" : " zero"}" title="${esc(t.label)}">` +
+        `${chip(OP_STYLE[key])}<b>${n}</b></span>`;
+    }).join("") +
+    `<span class="total">Total<b>${operations.length}</b></span></div>`;
+}
+
+// Trucks by type, counting the ones that actually went out. A type the
+// plan left in the yard still shows, at zero: that it was not needed is
+// worth as much as that it was.
+function fleetTallyHtml(st) {
+  const used = {};
+  for (const truck of st.truckList || []) used[truck.type] = (used[truck.type] || 0) + 1;
+  return `<div class="tally">` +
+    M.TYPE_ORDER.map((type) => {
+      const n = used[type] || 0;
+      const label = (M.TRUCK_TYPES[type] || { label: type }).label.toLowerCase();
+      return `<span class="t${n ? "" : " zero"}"><em>${esc(label)}</em><b>${n}</b></span>`;
+    }).join("") + `</div>`;
 }
 
 function updateSolveButton() {
   const total = M.TYPE_ORDER.reduce((n, t) => n + (fleet[t] || 0), 0);
   document.getElementById("solve").disabled = operations.length === 0 || total === 0;
-  document.getElementById("manageCount").textContent = operations.length
+  renderTally();
+  const planned = havePlan();
+  document.getElementById("solutionCount").textContent = planned
     ? plural(operations.length, "operação", "operações")
     : "";
-  document.getElementById("solutionCount").textContent = havePlan()
-    ? plural(operations.length, "operação", "operações")
-    : "";
+  // The plan tab can be opened before there is a plan. It then says so
+  // and asks nothing: a job is fitted into a plan, and there is none.
+  document.getElementById("planEmpty").hidden = planned;
+  const fit = document.getElementById("extraFind");
+  fit.disabled = !planned;
+  fit.title = planned ? "" : "Planeie o dia primeiro";
 }
 
 // How much earlier each truck type may go out, one row per type like
@@ -1963,77 +2288,10 @@ function dec(value, digits) {
 // Plan.
 function onCostChange() {
   clearPlan();
-  refreshCostHints();
   // Two of the warnings are about prices — an early start priced at
   // nothing, an afternoon priced on a day that has none — so the
   // problems box follows the prices too.
   renderProblems();
-}
-
-// Money never reaches the solver, only the ratios between the
-// configurations do. Showing both keeps that honest: what a kilometre
-// costs, and the integer VROOM is handed for it.
-function refreshCostHints() {
-  const costs = readCosts();
-  const perKm = M.solverPerKm(costs);
-  const rows = M.VEHICLE_CONFIGS
-    .map((cfg) => `<tr><td>${esc(cfg.label)}</td>` +
-      `<td class="n">${esc(money(M.moneyPerKm(cfg.key, costs)))}/km</td>` +
-      `<td class="raw">${perKm[cfg.key]}</td></tr>`)
-    .join("");
-
-  // The early starts on offer, on the same scale: a fixed charge on the
-  // vehicle that takes one, worth so many kilometres of the dearest
-  // truck. Showing that equivalence is the only honest way to read the
-  // number, since it is what the solver is actually weighing. One price
-  // covers the whole fleet, so a step is one row however many types are
-  // offered it, named by the types that are.
-  const times = readTimes();
-  const typesOfStep = new Map();
-  for (const type of M.TYPE_ORDER) {
-    for (const seconds of M.earlyStartsOf(times, type)) {
-      if (!typesOfStep.has(seconds)) typesOfStep.set(seconds, []);
-      typesOfStep.get(seconds).push(M.TRUCK_TYPES[type].label.toLowerCase());
-    }
-  }
-  const dearest = M.dearestMoneyPerKm(costs);
-  const earlyRows = [...typesOfStep.entries()]
-    .sort((a, b) => a[0] - b[0])
-    .map(([seconds, types]) => {
-      const fixed = M.solverEarlyStart(seconds, costs);
-      const km = dearest > 0 ? ` <span class="muted">(${dec(fixed / M.COST_SCALE, 1)} km do camião mais caro)</span>` : "";
-      const who = types.length === M.TYPE_ORDER.length ? "todos os camiões" : types.join(", ");
-      return `<tr><td>Sair ${fmtDuration(seconds)} mais cedo <span class="muted">(${esc(who)})</span></td>` +
-        `<td class="n">${esc(money(M.moneyForEarlyStart(seconds, costs)))}</td>` +
-        `<td class="raw">${fixed}${km}</td></tr>`;
-    })
-    .join("");
-
-  // The afternoon charge on the same scale, and for the same reason:
-  // what the solver actually weighs is the equivalence, not the money.
-  // One price covers the whole fleet, so it is one row, and there is no
-  // row at all when the two halves of the day are priced alike.
-  const afternoonMoney = M.moneyForAfternoon(costs);
-  const afternoonFixed = M.solverAfternoonFixed(costs);
-  const afternoonKm = dearest > 0
-    ? ` <span class="muted">(${dec(afternoonFixed / M.COST_SCALE, 1)} km do camião mais caro)</span>`
-    : "";
-  const afternoonRows = afternoonMoney > 0
-    ? `<tr><td>Trabalhar de tarde <span class="muted">(todos os camiões)</span></td>` +
-      `<td class="n">${esc(money(afternoonMoney))}</td>` +
-      `<td class="raw">${afternoonFixed}${afternoonKm}</td></tr>`
-    : "";
-
-  const priced = M.VEHICLE_CONFIGS.some((cfg) => M.moneyPerKm(cfg.key, costs) > 0);
-  const note = priced
-    ? `<span class="muted">A coluna da direita é o que é entregue ao VROOM: os mesmos números noutra escala, ` +
-      `porque só as razões entre eles decidem que camião conduz. Cada rota leva ainda um pequeno encargo pelo ` +
-      `tempo de condução, igual em todos os camiões, de que o otimizador precisa internamente e a que nenhum plano escapa.</span>`
-    : `<span class="warn">Nada custa nada, por isso todos os planos que façam as mesmas operações valem ` +
-      `o mesmo e o otimizador recai no tempo de condução e no menor número de camiões. Dê preço a pelo menos um camião.</span>`;
-
-  document.getElementById("costFormula").innerHTML =
-    `<table>${rows}${earlyRows}${afternoonRows}</table>${note}`;
 }
 
 // Rendered from M.TYPE_ORDER and M.CHICO_ORDER, so a new truck type or
@@ -2071,7 +2329,7 @@ function renderCosts() {
     name.title = `atrela a um ${M.TRUCK_TYPES[c.attachesTo].label.toLowerCase()}`;
     const unit = document.createElement("span");
     unit.className = "unit";
-    unit.textContent = "× custo por km";
+    unit.textContent = "custo por km ×";
     const input = document.createElement("input");
     input.type = "number"; input.min = "0"; input.step = "0.05";
     input.id = `chicomul-${key}`;
@@ -2097,8 +2355,6 @@ function renderCosts() {
     document.getElementById(id).oninput = onCostChange;
   }
   document.getElementById("geometry").onchange = onCostChange;
-
-  refreshCostHints();
 }
 
 document.getElementById("resetCosts").onclick = () => {
@@ -2274,6 +2530,20 @@ function planStats(run) {
     chicosUsed: Math.max(0, ...Object.values(chicosOfShift)),
     chicosTotal: offered.filter((v) => v.chico).length,
     duration: s.duration,
+    // What this plan costs the company, by the cost model of
+    // waste_model.js: every route's kilometres at the price of the
+    // configuration that drove them (the truck type, times its chico's
+    // multiplier), plus what any early start was really paid for. The
+    // afternoon charge is deliberately left out — it is a preference
+    // given a price so the solver can weigh it, not money the company
+    // spends. This is the column that says why the cheapest plan is the
+    // cheapest, since it is the only one it wins.
+    cost: (sol.routes || []).reduce((sum, r) => {
+      const info = vehicleInfo[r.vehicle] || {};
+      const perKm = M.moneyPerKm(M.configKeyOf(info.type, info.chico), lastCosts);
+      return sum + perKm * ((r.distance || 0) / 1000)
+                 + M.moneyForEarlyStart(info.early || 0, lastCosts);
+    }, 0),
     // The day as the trucks live it. Driving alone is the smaller half
     // of it once the service times are counted — ten minutes a container
     // at a client, five at the company — so a plan read on driving is
@@ -2314,11 +2584,11 @@ function showSolution(run) {
     shifts.forEach((shift, j) => {
       if (j > 0) {
         items.push(`<li class="company"><span class="t">${fmtClock(lastLunch.start)}</span>` +
-                   `<span>almoço na empresa até às ${fmtClock(lastLunch.end)}</span></li>`);
+                   `<span>almoço na Europontal até às ${fmtClock(lastLunch.end)}</span></li>`);
       }
       const r = truck.byShift[shift.key];
       if (!r) {
-        items.push(`<li class="company"><span class="t"></span><span>fica na empresa${shifts.length > 1 ? ` de ${shift.label}` : ""}</span></li>`);
+        items.push(`<li class="company"><span class="t"></span><span>fica na Europontal${shifts.length > 1 ? ` de ${shift.label}` : ""}</span></li>`);
         return;
       }
       const info = vehicleInfo[r.vehicle] || {};
@@ -2333,12 +2603,12 @@ function showSolution(run) {
         : "";
       for (const s of r.steps) {
         const clock = `<span class="t">${fmtClock(s.arrival)}</span>`;
-        if (s.type === "start") { items.push(`<li class="company">${clock}<span>sai da empresa${withChico}${early}</span></li>`); continue; }
-        if (s.type === "end") { items.push(`<li class="company">${clock}<span>de volta à empresa</span></li>`); continue; }
+        if (s.type === "start") { items.push(`<li class="company">${clock}<span>sai da Europontal${withChico}${early}</span></li>`); continue; }
+        if (s.type === "end") { items.push(`<li class="company">${clock}<span>de volta à Europontal</span></li>`); continue; }
         if (s.type === "break") { items.push(`<li class="company">${clock}<span>pausa</span></li>`); continue; }
         const text = s.description || stepInfo[s.id] || `${s.type} ${s.id}`;
         const opId = M.opIdOfStep(s.id);
-        const atCompany = /na empresa/.test(text);
+        const atCompany = /na Europontal/.test(text);
         if (!atCompany) { clientStops++; opColor[opId] = opColor[opId] || color; }
         items.push(`<li class="${atCompany ? "company" : ""}">${clock}<span>${esc(text)}</span></li>`);
       }
@@ -2380,11 +2650,13 @@ function showSolution(run) {
     <div class="stats">
       <div><span class="k">Camiões</span><span class="v">${st.trucksUsed}<span class="v muted" style="display:inline;font-size:12px"> / ${st.trucksTotal}</span></span></div>
       <div><span class="k">Chicos</span><span class="v">${st.chicosUsed}<span class="v muted" style="display:inline;font-size:12px"> / ${st.chicosTotal}</span></span></div>
-      <div><span class="k">Condução</span><span class="v">${st.duration != null ? fmtDuration(st.duration) : "–"}</span></div>
+      <div><span class="k">Tempo condução</span><span class="v">${st.duration != null ? fmtDuration(st.duration) : "–"}</span></div>
       <div title="condução mais cada minuto passado no local a manobrar contentores"><span class="k">Tempo total</span><span class="v">${st.totalTime != null ? fmtDuration(st.totalTime) : "–"}</span></div>
       <div><span class="k">Distância</span><span class="v">${st.distance != null ? dec(st.distance / 1000, 1) + " km" : "–"}</span></div>
       <div${unassignedTitle}><span class="k">Por atribuir</span><span class="v ${unassignedOps.size ? "bad" : "muted"}">${unassignedOps.size}${partialNote}</span></div>
     </div>
+    ${opTallyHtml()}
+    ${fleetTallyHtml(st)}
     ${cards.join("")}`;
 
   renderPoints(unassignedOps, opColor, partialOps);
@@ -2416,11 +2688,6 @@ const SCENARIO_METRICS = [
     delta: (d) => (d > 0 ? `+${d}` : `${d}`),
   },
   {
-    label: "Condução",
-    get: (st) => st.duration ?? null,
-    show: (st) => (st.duration != null ? fmtDuration(st.duration) : "–"),
-  },
-  {
     label: "Tempo total",
     get: (st) => st.totalTime ?? null,
     show: (st) => (st.totalTime != null ? fmtDuration(st.totalTime) : "–"),
@@ -2429,6 +2696,13 @@ const SCENARIO_METRICS = [
     label: "Distância",
     get: (st) => st.distance ?? null,
     show: (st) => (st.distance != null ? `${dec(st.distance / 1000, 1)}<small> km</small>` : "–"),
+  },
+  {
+    label: "Custo",
+    get: (st) => st.cost ?? null,
+    // Whole euros: the cents of a fuel estimate are noise, and the
+    // column is here to be compared, not invoiced.
+    show: (st) => (st.cost != null ? `${dec(st.cost, 0)}<small> ${CURRENCY}</small>` : "–"),
   },
 ];
 
@@ -2482,20 +2756,14 @@ function renderScenarios() {
            `${on ? " disabled" : ""}>${label}${cells}</button>`;
   }).join("");
 
-  // While a solve is still running the count is progress; once they
-  // have all settled it is how many plans there are to choose from,
-  // which is not the same number when one of them failed.
-  const pending = scenarioRuns.filter((r) => !r.stats && !r.error).length;
-  const count = pending
-    ? `a planear ${done.length + 1} de ${scenarioRuns.length}`
-    : `${done.length} ${done.length === 1 ? "plano" : "planos"}`;
+  // A plan still being worked out says so on its own row, so the
+  // heading has no count to carry.
   const shown = scenarioRuns.find((r) => r.scenario.key === activeScenario);
   const hint = shown && shown.scenario.hint
     ? `<div class="scen-hint">${esc(shown.scenario.label)}: ${esc(shown.scenario.hint)}</div>` : "";
 
   box.innerHTML =
-    `<div class="scen-head"><span class="t">O mesmo dia, de ${scenarioRuns.length} maneiras</span>` +
-    `<span class="n">${count}</span></div>` +
+    `<div class="scen-head"><span class="t">Escolha o plano a seguir</span></div>` +
     `<div class="scen-table">` +
       `<div class="scen-hdr"><span></span>` +
       SCENARIO_METRICS.map((m) => `<span>${m.label}</span>`).join("") +
@@ -2540,10 +2808,9 @@ function clearPlan() {
   routeLayer.clearLayers();
   document.getElementById("scenarios").innerHTML = "";
   document.getElementById("summary").innerHTML = "";
-  // There is nothing left to read, so the step that reads it is not
-  // somewhere to be standing.
-  if (planStep === "solutions") showStep("manage");
-  else updateSolveButton();
+  // Whoever is reading the plan tab stays there and sees it go empty:
+  // being moved off a tab you did not leave is worse than an empty one.
+  updateSolveButton();
 }
 
 // ---------- actions ----------
@@ -2586,11 +2853,11 @@ function havePlan() {
 // it arrives anyway, so the first one is on the map about as soon as
 // the single plan of before would have been.
 document.getElementById("solve").onclick = async () => {
-  // The one button of this step, and it asks one question: show me the
-  // plan for this day. When the plan already on hand is still the plan
-  // for this day, that is the answer, and solving it again would cost
-  // a second and arrive at the same place.
-  if (havePlan()) return showStep("solutions");
+  // One button, one question: show me the plan for this day. When the
+  // plan already on hand is still the plan for this day, that is the
+  // answer, and solving it again would cost a second and arrive at the
+  // same place.
+  if (havePlan()) return goToPlan();
 
   const errors = renderProblems();
   if (errors.length) {
@@ -2638,7 +2905,7 @@ document.getElementById("solve").onclick = async () => {
   // its say, so this is the moment the question changes from what to
   // do to what it would cost. The rows are already on screen saying
   // "a planear…", and they fill in as the answers come back.
-  showStep("solutions");
+  goToPlan();
 
   try {
     for (const run of scenarioRuns) {
@@ -2677,7 +2944,7 @@ document.getElementById("solve").onclick = async () => {
 // Going back changes nothing: the plan, its routes on the map and the
 // scenario it was read under are all still there to come back to, and
 // only an edit to the day itself throws them away.
-document.getElementById("backToManage").onclick = () => showStep("manage");
+document.getElementById("backToManage").onclick = () => showTab("manage");
 
 // Clears the day, not the configuration: the company stays where Config
 // put it.
@@ -2794,7 +3061,9 @@ function extraNow() {
 function renderNowState() {
   const box = document.getElementById("nowState");
   const run = currentRun();
-  if (!run || !run.stats) { box.textContent = "ainda não há plano"; return; }
+  // Nothing to read off a day that has not been planned.
+  if (!run || !run.stats) { box.hidden = true; box.innerHTML = ""; return; }
+  box.hidden = false;
   const now = extraNow();
   let out = 0;
   let todo = 0;
@@ -2808,7 +3077,9 @@ function renderNowState() {
       if (s.type !== "start" && s.type !== "end" && s.arrival > now) todo++;
     }
   }
-  box.textContent = `${out} ${out === 1 ? "camião" : "camiões"} · faltam ${todo} ${todo === 1 ? "paragem" : "paragens"}`;
+  box.innerHTML =
+    `<span><b>${out}</b><i>na estrada</i></span>` +
+    `<span><b>${todo}</b><i>${todo === 1 ? "paragem" : "paragens"}</i></span>`;
 }
 
 
@@ -2882,7 +3153,7 @@ function optionCard(option, i, color) {
     : `${option.delayed} ${option.delayed === 1 ? "paragem adiada" : "paragens adiadas"}`;
   const items = option.timeline.map((t) => {
     const late = t.moved > 0 ? `<span class="late">+${fmtDuration(t.moved)}</span>` : "";
-    const company = t.kind !== "new" && /empresa/.test(t.text);
+    const company = t.kind !== "new" && /Europontal/.test(t.text);
     const cls = t.kind === "new" ? "new" : (company ? "company" : "");
     return `<li class="${cls}"><span class="t">${fmtClock(t.at)}</span><span>${esc(t.text)}</span>${late}</li>`;
   }).join("");
@@ -2891,7 +3162,7 @@ function optionCard(option, i, color) {
       <span class="name">${esc(option.name)}<small>${esc(shift)}</small></span>
       <span class="meta">+${dec(option.extraDistance / 1000, 1)} km · +${fmtDuration(option.extraDuration)}</span>
     </summary>
-    <div class="opt-why">${esc(where)} · de volta à empresa às ${fmtClock(option.endAfter)}, o turno acaba às ${fmtClock(option.shiftEnd)}</div>
+    <div class="opt-why">${esc(where)} · de volta à Europontal às ${fmtClock(option.endAfter)}, o turno acaba às ${fmtClock(option.shiftEnd)}</div>
     <ol>${items}</ol></details>`;
 }
 
@@ -3088,7 +3359,9 @@ async function findExtra() {
       `Não foi possível contactar o servidor de encaminhamento: ${BackendMessages.of(err)}`, "err");
     setStatus(`Erro de encaminhamento: ${BackendMessages.of(err)}`, "err");
   } finally {
-    button.disabled = false;
+    // The plan can have been thrown away while this was in flight, and
+    // then there is nothing left to fit into.
+    button.disabled = !havePlan();
   }
 }
 
@@ -3106,11 +3379,6 @@ for (const el of [extraLat, extraLng]) el.oninput = () => { clearExtra(); placeE
 extraSizeSel.onchange = clearExtra;
 document.getElementById("extraFind").onclick = findExtra;
 document.getElementById("extraClear").onclick = cancelExtraJob;
-document.getElementById("nowLive").onclick = () => {
-  const d = new Date();
-  nowClock.value = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-  renderNowState();
-};
 nowClock.oninput = renderNowState;
 
 // ---------- bootstrap ----------
@@ -3129,7 +3397,6 @@ renderContainers();
 renderZones();
 refreshZoneState();
 renderPoints();
-refreshCostHints();
 </script>
 </body>
 </html>
